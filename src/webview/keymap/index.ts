@@ -88,6 +88,16 @@ let navScrollUnlockTimer: ReturnType<typeof setTimeout> | null = null;
 /** 打开 L2 并进入录制的那次 click 会冒泡到 document，忽略以免立刻 stopCapture */
 let suppressOutsideCapture = false;
 
+/** 搜索框“录制按键搜索”状态；与 L2 capture 相互独立，L2 打开时必须为空。 */
+type SearchCaptureState = {
+  pendingLeader: boolean;
+  leaderTimer?: ReturnType<typeof setTimeout>;
+};
+
+let searchCapture: SearchCaptureState | null = null;
+/** 非录制态的搜索框 placeholder（markup 已本地化），进入录制时用于还原。 */
+let searchPlaceholder = "";
+
 function $(sel: string): HTMLElement | null {
   return document.querySelector(sel);
 }
@@ -152,6 +162,47 @@ function renderOneChord(chord: string, extraClass = "", extraAttrs = ""): string
   return `<span class="${cls("kbd")}"${attrs}>${escapeHtml(formatKey(chord))}</span>`;
 }
 
+/**
+ * 归一化一段按键文本用于搜索匹配：按逗号拆成多组合，每个组合再按 “+”
+ * 逐段 normChord，让存储侧的别名（enter/esc/pgup…）与录制出的归一键名一致。
+ */
+export function normalizeChordText(value: string): string {
+  return value
+    .split(",")
+    .map((chord) => chord.trim())
+    .filter(Boolean)
+    .map((chord) => chord.split("+").map(normChord).join("+"))
+    .join(",");
+}
+
+/**
+ * 搜索词形如单个按键组合（无空白/逗号，仅按键字符）时做同样的归一，
+ * 其余自由文本仅做小写化，避免误改普通关键词。
+ */
+export function normalizeSearchQuery(query: string): string {
+  const s = query.trim().toLowerCase();
+  if (s && /^[+\w.<>-]+$/.test(s)) {
+    return s.split("+").map(normChord).join("+");
+  }
+  return s;
+}
+
+/** keys 搜索匹配：原文子串或归一化子串任一命中即可（覆盖录制键与存储别名不一致）。 */
+export function matchesKeyText(
+  effText: string,
+  defText: string,
+  query: string,
+): boolean {
+  const raw = query.toLowerCase();
+  const normalized = normalizeSearchQuery(query);
+  return (
+    effText.toLowerCase().includes(raw) ||
+    defText.toLowerCase().includes(raw) ||
+    normalizeChordText(effText).includes(normalized) ||
+    normalizeChordText(defText).includes(normalized)
+  );
+}
+
 function matchesFilter(item: KeymapItem): boolean {
   const state = getDisplayState(itemOverride(item.id), itemDef(item.id));
   if (filterMode === "modified" && state !== "modified") return false;
@@ -163,8 +214,7 @@ function matchesFilter(item: KeymapItem): boolean {
     item.id.toLowerCase().includes(q) ||
     item.title.toLowerCase().includes(q) ||
     item.desc.toLowerCase().includes(q) ||
-    eff(item.id).toLowerCase().includes(q) ||
-    item.def.toLowerCase().includes(q)
+    matchesKeyText(eff(item.id), item.def, searchQuery)
   );
 }
 
@@ -408,6 +458,7 @@ export function openKeymapModal(): void {
 
 export function closeKeymapModal(): void {
   closeL2(false);
+  setSearchCapture(false);
   $("#km-overlay")?.classList.add("hidden");
   document.getElementById("btn-keymap")?.classList.remove("is-active");
 }
@@ -515,6 +566,8 @@ export function handleKeymapSaveResult(
 function openL2(id: string, options?: { captureIndex?: number }): void {
   const item = items.find((c) => c.id === id);
   if (!item) return;
+  // L2 编辑器独占键盘录制，搜索录制态必须先退出并清理定时器
+  setSearchCapture(false);
   const draft = effChords(id).slice();
   l2 = {
     id,
@@ -742,6 +795,8 @@ function requestReset(id: string): void {
   const overlay = $("#km-confirm-overlay");
   const desc = $("#km-confirm-desc");
   if (!overlay) return;
+  // 确认弹窗接管键盘，残留的搜索录制态一并退出
+  setSearchCapture(false);
   if (desc) {
     desc.textContent = formatMessage(
       t(
@@ -774,27 +829,87 @@ function requestReset(id: string): void {
   };
 }
 
-function eventToChord(e: KeyboardEvent): string | null {
+export function eventToChord(e: KeyboardEvent): string | null {
   const MODS = ["Shift", "Control", "Alt", "Meta", "OS"];
   if (MODS.includes(e.key)) return null;
+  const key = baseKeyName(e);
+  if (!key) return null;
   const parts: string[] = [];
   if (e.ctrlKey) parts.push("ctrl");
   if (e.altKey) parts.push("alt");
   if (e.shiftKey) parts.push("shift");
   if (e.metaKey) parts.push("super");
-  let key = e.key;
-  if (key === " ") key = "space";
-  else if (key === "Escape") key = "escape";
-  else if (key === "Enter") key = "return";
-  else if (key === "ArrowLeft") key = "left";
-  else if (key === "ArrowRight") key = "right";
-  else if (key === "ArrowUp") key = "up";
-  else if (key === "ArrowDown") key = "down";
-  else if (key === "PageUp") key = "pageup";
-  else if (key === "PageDown") key = "pagedown";
-  else key = key.toLowerCase();
   parts.push(key);
   return parts.join("+");
+}
+
+/** e.code → OpenCode/tcell 风格键名；仅映射无歧义的物理键，映射不了返回 null。 */
+function keyNameFromCode(code: string): string | null {
+  if (!code) return null;
+  const digit = /^Digit([0-9])$/.exec(code);
+  if (digit) return digit[1];
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter) return letter[1].toLowerCase();
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code.toLowerCase();
+  const namedCodes: Record<string, string> = {
+    Space: "space",
+    Escape: "escape",
+    Enter: "return",
+    NumpadEnter: "kpenter",
+    Backspace: "backspace",
+    Tab: "tab",
+    Delete: "delete",
+    Insert: "insert",
+    Home: "home",
+    End: "end",
+    PageUp: "pageup",
+    PageDown: "pagedown",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    ArrowUp: "up",
+    ArrowDown: "down",
+  };
+  return namedCodes[code] ?? null;
+}
+
+/** e.key → 键名兜底表（e.code 缺失或不可映射时使用）。 */
+const keyNameFallbacks: Record<string, string> = {
+  " ": "space",
+  Escape: "escape",
+  Enter: "return",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+  PageUp: "pageup",
+  PageDown: "pagedown",
+};
+
+/**
+ * 解析按键事件的基础键名。
+ * 单个可见字符按布局结果记录（保留 shift 符号，如 shift+1 → "!"）；
+ * 其余命名键优先取物理键 e.code：IME（"Process"/keyCode 229）和环境转译
+ * 可能把 e.key 报成错误的键名（例如按 ctrl+1 时 key 为 "Insert"），
+ * 而 e.code 始终对应物理按键。
+ */
+function baseKeyName(e: KeyboardEvent): string | null {
+  const key = e.key;
+  if (key.length === 1) {
+    const codePoint = key.codePointAt(0) ?? 0;
+    if (codePoint >= 0x20) {
+      return key === " " ? "space" : key.toLowerCase();
+    }
+    // 控制字符（Windows 上 Ctrl+字母可能报成 "\x01" 等）：改用物理键
+    return keyNameFromCode(e.code);
+  }
+  if (key === "Process" || e.keyCode === 229) {
+    // IME 组合中 e.key 不可用，但物理键 code 仍然可信
+    return keyNameFromCode(e.code);
+  }
+  if (key === "Unidentified" || key === "Dead") {
+    return null;
+  }
+  return keyNameFromCode(e.code) ?? keyNameFallbacks[key] ?? key.toLowerCase();
 }
 
 function currentLeaderKey(): string {
@@ -830,6 +945,89 @@ function handleCaptureKey(e: KeyboardEvent): void {
   capture.chord = simple;
   renderL2();
   commitChord(simple);
+}
+
+function searchInput(): HTMLInputElement | null {
+  return $("#km-search") as HTMLInputElement | null;
+}
+
+/** 进入/退出搜索录制态；退出时清理 leader 定时器并还原输入框展示。 */
+function setSearchCapture(on: boolean): void {
+  if (on === Boolean(searchCapture)) return;
+  const input = searchInput();
+  if (on) {
+    searchCapture = { pendingLeader: false };
+    if (input) {
+      input.readOnly = true;
+      input.placeholder = t("searchRecordPlaceholder", "Press keys to search…");
+      input.focus();
+    }
+    $("#km-search-record")?.setAttribute("aria-pressed", "true");
+    $(".km-search")?.classList.add("is-recording");
+    return;
+  }
+  if (searchCapture?.leaderTimer) clearTimeout(searchCapture.leaderTimer);
+  searchCapture = null;
+  if (input) {
+    input.readOnly = false;
+    input.placeholder = searchPlaceholder;
+    // leader 等待期的临时展示（“Ctrl + X …”）不是有效搜索词，退出时还原
+    if (input.value !== searchQuery) input.value = searchQuery;
+  }
+  $("#km-search-record")?.setAttribute("aria-pressed", "false");
+  $(".km-search")?.classList.remove("is-recording");
+}
+
+/** 清除按钮仅在已有搜索词时可见。 */
+function updateSearchClearBtn(): void {
+  $("#km-search-clear")?.classList.toggle("hidden", !searchQuery);
+}
+
+/** 清空搜索并退出录制态，焦点回到搜索框。 */
+function clearSearch(): void {
+  searchQuery = "";
+  const input = searchInput();
+  if (input) input.value = "";
+  setSearchCapture(false);
+  updateSearchClearBtn();
+  render();
+  input?.focus();
+}
+
+/**
+ * 搜索录制按键处理：参考 handleCaptureKey，支持 leader 序列
+ * （1.5s 内接续下一键则搜索 “<leader>+下一键”，超时单独提交该组合）。
+ */
+function handleSearchCaptureKey(e: KeyboardEvent): void {
+  if (!searchCapture) return;
+  const chord = eventToChord(e);
+  if (!chord) return; // 纯修饰键
+  const input = searchInput();
+  const submit = (query: string): void => {
+    searchQuery = query;
+    if (input) input.value = query;
+    setSearchCapture(false);
+    updateSearchClearBtn();
+    render();
+  };
+  if (!searchCapture.pendingLeader && normChord(chord) === currentLeaderKey()) {
+    searchCapture.pendingLeader = true;
+    if (input) input.value = `${formatKey(chord)} …`;
+    searchCapture.leaderTimer = setTimeout(() => {
+      if (searchCapture?.pendingLeader) {
+        searchCapture.pendingLeader = false;
+        submit(chord);
+      }
+    }, 1500);
+    return;
+  }
+  if (searchCapture.pendingLeader) {
+    if (searchCapture.leaderTimer) clearTimeout(searchCapture.leaderTimer);
+    searchCapture.pendingLeader = false;
+    submit(`<leader>${chord}`);
+    return;
+  }
+  submit(chord);
 }
 
 function scrollToGroup(key: string): void {
@@ -887,6 +1085,9 @@ function syncSideNavFromScroll(): void {
 }
 
 export function initKeymapUi(): void {
+  // 非录制态 placeholder 由 markup 本地化生成，这里缓存以便录制结束后还原
+  searchPlaceholder = searchInput()?.getAttribute("placeholder") ?? "";
+  updateSearchClearBtn();
   $("#km-close")?.addEventListener("click", () => closeKeymapModal());
   $("#km-reload")?.addEventListener("click", () => {
     // Pull the latest cli.json keybinds (external edits) and re-render on data.
@@ -903,8 +1104,13 @@ export function initKeymapUi(): void {
   });
   $("#km-search")?.addEventListener("input", (e) => {
     searchQuery = (e.target as HTMLInputElement).value || "";
+    updateSearchClearBtn();
     render();
   });
+  $("#km-search-record")?.addEventListener("click", () => {
+    setSearchCapture(!searchCapture);
+  });
+  $("#km-search-clear")?.addEventListener("click", () => clearSearch());
   $("#km-filter")?.addEventListener("change", (e) => {
     filterMode = (e.target as HTMLSelectElement).value || "all";
     render();
@@ -1000,9 +1206,34 @@ export function initKeymapUi(): void {
       $("#km-confirm-cancel")?.click();
       return;
     }
+    // 搜索录制：优先于 L2 capture，录制中的按键不落入终端或其他处理器
+    if (searchCapture) {
+      e.preventDefault();
+      e.stopPropagation();
+      // 只录制物理按键；宿主或注入脚本派发的合成事件不可作为录制依据
+      if (!e.isTrusted) return;
+      if (e.key === "Escape") {
+        setSearchCapture(false);
+        return;
+      }
+      if (
+        (e.key === "Backspace" || e.key === "Delete") &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !e.metaKey
+      ) {
+        clearSearch();
+        return;
+      }
+      handleSearchCaptureKey(e);
+      return;
+    }
     if (capture) {
       e.preventDefault();
       e.stopPropagation();
+      // 只录制物理按键；宿主或注入脚本派发的合成事件不可作为录制依据
+      if (!e.isTrusted) return;
       if (e.key === "Escape") {
         stopCapture();
         return;

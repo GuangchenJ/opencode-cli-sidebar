@@ -36,6 +36,20 @@ export function renderKeymapModals(): string {
           </select>
           <div class="km-search">
             <input type="search" id="km-search" placeholder="${l10n.t("Search commands, descriptions, or keys…")}" autocomplete="off" />
+            <div class="km-search-actions">
+              <button type="button" class="km-search-btn" id="km-search-record" title="${l10n.t("Record keys to search")}" aria-label="${l10n.t("Record keys to search")}" aria-pressed="false">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <rect x="1.5" y="3.5" width="13" height="9" rx="1.3" stroke="currentColor" stroke-width="1.2"/>
+                  <path d="M4 6h.01M6.4 6h.01M8.8 6h.01M11.2 6h.01M4 8.6h.01M6.4 8.6h.01M8.8 8.6h.01M11.2 8.6h.01M6 11h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+                <span class="capture-dot" aria-hidden="true"></span>
+              </button>
+              <button type="button" class="km-search-btn hidden" id="km-search-clear" title="${l10n.t("Clear search")}" aria-label="${l10n.t("Clear search")}">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
         <div class="km-list" id="km-list"></div>
@@ -102,6 +116,9 @@ export const keymapL10nStrings: Record<string, string> = {
   groupWhichkey: l10n.t("Which-key"),
   unbound: l10n.t("Unbound"),
   recording: l10n.t("Recording"),
+  recordKeysTitle: l10n.t("Record keys to search"),
+  clearSearchTitle: l10n.t("Clear search"),
+  searchRecordPlaceholder: l10n.t("Press keys to search…"),
   cancel: l10n.t("Cancel"),
   addBinding: l10n.t("+ Add binding"),
   clickToEdit: l10n.t("Click to edit"),
