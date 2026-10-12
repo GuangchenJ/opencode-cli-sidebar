@@ -670,7 +670,11 @@ describe("OpenCodeCliCompat", () => {
         ],
         [
           "info",
-          '[OpenCodeCliCompat] version probe: binary="opencode" major=(none) output=""',
+          '[OpenCodeCliCompat] full version probe: binary="opencode" version="(none)" output=""',
+        ],
+        [
+          "info",
+          '[OpenCodeCliCompat] version probe: binary="opencode" major=(none) version="(none)"',
         ],
       ]);
     });

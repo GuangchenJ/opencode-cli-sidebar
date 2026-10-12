@@ -4,6 +4,8 @@ import {
   extractCliBinary,
   getOpenCodeVersion,
   parseOpenCodeMajorVersion,
+  peekOpenCodeVersion,
+  peekOpenCodeVersionProbe,
   resetOpenCodeCliVersionCaches,
   runOpenCodeCliCommand,
   streamOpenCodeCliCommand,
@@ -428,14 +430,26 @@ export class OpenCodeUpdateService implements vscode.Disposable {
 
   /**
    * Probes whether the configured OpenCode CLI can execute at all via
-   * `--version`. A command that runs but prints unparseable output still
-   * counts as present (that case belongs to the existing v1/disabled
-   * gating, not to "not installed"); only a failing command means the
-   * CLI is missing. Uses the injected exec adapter, so the default
-   * Windows cmd-shim retry applies.
+   * `--version`. Reuses any known or in-flight version probe first so
+   * activation does not spawn the binary once per consumer (pill, update
+   * check, availability probe). A command that runs but prints
+   * unparseable output still counts as present (that case belongs to the
+   * existing v1/disabled gating, not to "not installed"); only a failing
+   * command means the CLI is missing. Uses the injected exec adapter for
+   * the fallback, so the default Windows cmd-shim retry applies.
    */
   public async probeCliAvailable(): Promise<boolean> {
     const binary = extractCliBinary(this.getBinaryFn());
+    if (peekOpenCodeVersion(binary) !== undefined) {
+      return true;
+    }
+    const inFlight = peekOpenCodeVersionProbe(binary);
+    if (inFlight) {
+      const version = await inFlight;
+      if (version !== undefined) {
+        return true;
+      }
+    }
     try {
       await this.exec(binary, ["--version"], PROBE_CLI_TIMEOUT_MS);
       return true;

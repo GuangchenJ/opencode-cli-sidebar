@@ -28,6 +28,8 @@ export interface OpenCodeV2ServiceInfo {
 
 const versionCache = new Map<string, number>();
 const fullVersionCache = new Map<string, string>();
+/** In-flight full-version probes, keyed by binary: concurrent callers share one spawn. */
+const fullVersionInFlight = new Map<string, Promise<string | undefined>>();
 const protocolCache = new Map<string, OpenCodeApiProtocol>();
 
 export type OpenCodeCliDiagnosticLevel = "info" | "warn";
@@ -426,11 +428,16 @@ export async function detectOpenCodeMajorVersion(
     return cached;
   }
 
-  const output = await runCli(binary, ["--version"]);
-  const major = parseOpenCodeMajorVersion(output);
+  // Derive the major from the shared full-version probe so a single
+  // `--version` run feeds every consumer (pill, update check, session
+  // startup) instead of one spawn per cache. Pass the original command:
+  // re-extracting an already-extracted path with spaces is lossy.
+  const full = await getOpenCodeVersion(commandOrBinary);
+  const major =
+    full !== undefined ? parseOpenCodeMajorVersion(full) : undefined;
   logDiagnostic(
     "info",
-    `[OpenCodeCliCompat] version probe: binary=${JSON.stringify(binary)} major=${major ?? "(none)"} output=${JSON.stringify(output)}`,
+    `[OpenCodeCliCompat] version probe: binary=${JSON.stringify(binary)} major=${major ?? "(none)"} version=${JSON.stringify(full ?? "(none)")}`,
   );
   if (major !== undefined) {
     versionCache.set(binary, major);
@@ -441,7 +448,8 @@ export async function detectOpenCodeMajorVersion(
 /**
  * Resolves the full OpenCode CLI version string from `<bin> --version`
  * (e.g. "1.18.33"; dev builds print "local"). Returns undefined when the
- * probe fails.
+ * probe fails. Concurrent calls for the same binary share one probe;
+ * failed probes are not cached, so a later call retries.
  */
 export async function getOpenCodeVersion(
   commandOrBinary = "opencode",
@@ -451,23 +459,50 @@ export async function getOpenCodeVersion(
   if (cached !== undefined) {
     return cached;
   }
-
-  const output = await runCli(binary, ["--version"]);
-  const version = parseOpenCodeFullVersion(output);
-  logDiagnostic(
-    "info",
-    `[OpenCodeCliCompat] full version probe: binary=${JSON.stringify(binary)} version=${JSON.stringify(version ?? "(none)")} output=${JSON.stringify(output)}`,
-  );
-  if (version !== undefined) {
-    fullVersionCache.set(binary, version);
+  const inFlight = fullVersionInFlight.get(binary);
+  if (inFlight) {
+    return inFlight;
   }
-  return version;
+
+  const pending = runCli(binary, ["--version"]).then((output) => {
+    const version = parseOpenCodeFullVersion(output);
+    logDiagnostic(
+      "info",
+      `[OpenCodeCliCompat] full version probe: binary=${JSON.stringify(binary)} version=${JSON.stringify(version ?? "(none)")} output=${JSON.stringify(output)}`,
+    );
+    if (version !== undefined) {
+      fullVersionCache.set(binary, version);
+      // One probe feeds both caches: derive the major from the full
+      // version so `detectOpenCodeMajorVersion` never spawns again.
+      const major = parseOpenCodeMajorVersion(version);
+      if (major !== undefined) {
+        versionCache.set(binary, major);
+      }
+    }
+    fullVersionInFlight.delete(binary);
+    return version;
+  });
+  fullVersionInFlight.set(binary, pending);
+  return pending;
+}
+
+/** Cached full version for a binary without probing; undefined when unknown. */
+export function peekOpenCodeVersion(binary: string): string | undefined {
+  return fullVersionCache.get(binary);
+}
+
+/** In-flight full-version probe for a binary, if one is running. */
+export function peekOpenCodeVersionProbe(
+  binary: string,
+): Promise<string | undefined> | undefined {
+  return fullVersionInFlight.get(binary);
 }
 
 /** Clears cached CLI version/protocol lookups (tests). */
 export function resetOpenCodeCliCompatCaches(): void {
   versionCache.clear();
   fullVersionCache.clear();
+  fullVersionInFlight.clear();
   protocolCache.clear();
   resetWindowsShellRetry();
   diagnosticLogger = undefined;
@@ -482,6 +517,7 @@ export function resetOpenCodeCliCompatCaches(): void {
 export function resetOpenCodeCliVersionCaches(): void {
   versionCache.clear();
   fullVersionCache.clear();
+  fullVersionInFlight.clear();
   protocolCache.clear();
 }
 
