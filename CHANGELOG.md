@@ -5,6 +5,11 @@ All notable changes to the "Opencode CLI Sidebar" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### 5.1.0
+**New Features**
+- **Keymap**: Search key chords by recording them directly.
+- **Terminal**: Register legacy `ai-sidebar-terminal` command aliases for compatibility.
+
 #### 5.0.0
 **New Features**
 - **Install**: Detect a missing OpenCode CLI and install it directly from the webview.
