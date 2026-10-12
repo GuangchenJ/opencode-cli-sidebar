@@ -5,6 +5,19 @@ All notable changes to the "Opencode CLI Sidebar" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### 5.2.0
+**New Features**
+- **Update**: Show the target version in the update popover and start checking for updates immediately on activation.
+- **Update**: Replace the progress card with a toolbar progress line for a cleaner update indicator.
+
+**Bug Fixes**
+- **Update**: Keep the missing-CLI install prompt armed against the racing activation check.
+- **Webview**: Fully suppress the xterm legacy viewport scrollbar arrows.
+
+**Improvements**
+- **OpenCode**: Share a single `--version` probe across consumers.
+- **Update**: Race latest-version endpoints in parallel instead of checking them sequentially.
+
 #### 5.1.0
 **New Features**
 - **Keymap**: Search key chords by recording them directly.
