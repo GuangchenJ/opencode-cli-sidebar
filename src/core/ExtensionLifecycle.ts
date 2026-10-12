@@ -306,9 +306,6 @@ export class ExtensionLifecycle {
 
   // ── OpenCode update auto-check scheduling ──
 
-  /** Initial delay before the first silent update check. */
-  private static readonly UPDATE_CHECK_INITIAL_DELAY_MS = 15_000;
-
   private updateCheckTimer: NodeJS.Timeout | undefined;
 
   // ── Missing-CLI install prompt ──
@@ -362,8 +359,8 @@ export class ExtensionLifecycle {
   }
 
   /**
-   * Schedules silent update checks: one short-delay activation check after
-   * activation, then self-rescheduling ticks spaced by
+   * Schedules silent update checks: an immediate activation check, then
+   * self-rescheduling ticks spaced by
    * `update.checkIntervalHours`. Settings are re-read before each tick, so
    * disabling `update.autoCheck` stops the chain on the next boundary.
    */
@@ -375,10 +372,7 @@ export class ExtensionLifecycle {
       );
       return;
     }
-    this.scheduleNextOpenCodeUpdateCheck(
-      ExtensionLifecycle.UPDATE_CHECK_INITIAL_DELAY_MS,
-      true,
-    );
+    this.scheduleNextOpenCodeUpdateCheck(0, true);
   }
 
   private scheduleNextOpenCodeUpdateCheck(

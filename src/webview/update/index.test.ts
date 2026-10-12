@@ -82,6 +82,7 @@ describe("OpenCode update UI (webview)", () => {
 
     expect(pill().classList.contains("hidden")).toBe(false);
     expect(pill().classList.contains("is-entry")).toBe(true);
+    expect(pill().classList.contains("is-update")).toBe(true);
 
     resetStatus();
 
@@ -293,7 +294,7 @@ describe("OpenCode update UI (webview)", () => {
 
     expect(popover().classList.contains("hidden")).toBe(false);
     expect(popover().querySelector("#ocu-popover-title")?.textContent).toBe(
-      "Install OpenCode CLI",
+      "Update OpenCode CLI to 2.1.0",
     );
 
     // Enrichment re-push without the flag: refresh in place, no toggle-close.
@@ -339,6 +340,7 @@ describe("OpenCode update UI (webview)", () => {
     const pillEl = pill();
     expect(pillEl.classList.contains("hidden")).toBe(false);
     expect(pillEl.classList.contains("is-entry")).toBe(true);
+    expect(pillEl.classList.contains("is-update")).toBe(false);
     expect(document.getElementById("ocu-version-text")?.textContent).toBe(
       "Install",
     );

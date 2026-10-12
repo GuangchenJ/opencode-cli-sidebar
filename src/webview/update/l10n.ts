@@ -38,6 +38,7 @@ export const openCodeUpdateL10nStrings: Record<string, string> = {
 
   // Method popover
   installPopoverTitle: l10n.t('Install OpenCode CLI'),
+  updatePopoverTitle: l10n.t('Update OpenCode CLI to {0}'),
   hintConfirm: l10n.t('Enter to confirm'),
   hintCancel: l10n.t('Esc to cancel'),
   hintMove: l10n.t('Up and down to switch'),

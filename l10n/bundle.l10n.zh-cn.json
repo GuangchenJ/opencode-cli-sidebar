@@ -671,6 +671,7 @@
   "Installing OpenCode": "正在安装 OpenCode",
   "Installing OpenCode, click to view progress": "正在安装 OpenCode，点击查看进度",
   "Installing OpenCode, progress card shown": "正在安装 OpenCode，进度卡片已显示",
+  "Update OpenCode CLI to {0}": "更新 OpenCode CLI 至 {0}",
   "Use monochrome ASCII output": "使用单色 ASCII 输出",
   "Variant list": "Variant 列表",
   "Verbose": "详细",

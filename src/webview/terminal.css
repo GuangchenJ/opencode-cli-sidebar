@@ -1193,7 +1193,7 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
    颜色一律走 --vscode-* 主题变量，尺寸与原型保持一致。
    ────────────────────────────────────────────────────────────── */
 
-/* 版本 pill：所有可见状态均可点。状态 A 下划线角标开气泡，状态 B 旋转查看进度，普通态触发检查更新 */
+/* 版本 pill：所有可见状态均可点。状态 A 圆点角标开气泡（有更新时版本号不带下划线），状态 B 旋转查看进度，普通态触发检查更新 */
 .ocu-pill {
   position: relative;
   display: inline-flex;
@@ -1225,6 +1225,10 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-color: rgba(128, 128, 128, 0.45);
+}
+/* 有更新：版本号去下划线，入口由圆点角标与链接色表达 */
+.ocu-pill.is-update .ocu-pill-text {
+  text-decoration: none;
 }
 .ocu-pill.is-entry::before {
   content: "";

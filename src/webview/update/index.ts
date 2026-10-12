@@ -283,6 +283,7 @@ function renderPill(): void {
   pill.classList.remove("hidden");
   pill.disabled = false;
   pill.classList.toggle("is-entry", entryA);
+  pill.classList.toggle("is-update", st.state === "available");
   pill.classList.toggle("is-updating", busy);
 
   if (busy) {
@@ -721,8 +722,12 @@ function syncPopoverFocus(): void {
 }
 
 function popoverTitleText(): string {
-  // Shared by the available and installable flows, so the title stays on
-  // neutral install wording.
+  // The available flow is an update and names its target version; the
+  // installable flow is a first install and keeps the install wording.
+  if (status?.state === "available") {
+    const latest = status.latestVersion ?? status.targetVersion ?? "";
+    return format(t("updatePopoverTitle", "Update OpenCode CLI to {0}"), latest);
+  }
   return t("installPopoverTitle", "Install OpenCode CLI");
 }
 
@@ -737,6 +742,7 @@ function openPopover(): void {
   if (titleEl) {
     titleEl.textContent = titleText;
   }
+  popList?.setAttribute("aria-label", titleText);
   renderPopoverRows();
   const pref =
     status.lastUsedMethod ?? status.detectedMethod ?? status.defaultMethod ?? "npm";
@@ -764,6 +770,7 @@ function refreshOpenPopover(): void {
   if (titleEl) {
     titleEl.textContent = popoverTitleText();
   }
+  popList?.setAttribute("aria-label", popoverTitleText());
   renderPopoverRows();
   const count = methods().length;
   if (popFocused >= count) popFocused = Math.max(0, count - 1);

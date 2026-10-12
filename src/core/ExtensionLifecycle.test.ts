@@ -50,6 +50,17 @@ describe("ExtensionLifecycle", () => {
     mockContext = new vscode.ExtensionContext();
   });
 
+  // The activation check runs with zero delay, so every test that activated
+  // a lifecycle must clear its timer before later tests' event-loop turns
+  // fire the leaked callback on the shared prototype.
+  afterEach(async () => {
+    try {
+      await lifecycle.deactivate();
+    } catch {
+      // best-effort cleanup between tests
+    }
+  });
+
   describe("activate", () => {
     it("should initialize terminal manager", async () => {
       await lifecycle.activate(mockContext);
@@ -888,13 +899,13 @@ describe("ExtensionLifecycle", () => {
         .mockResolvedValue({ ok: true, state: "upToDate" } as never);
     }
 
-    it("checks after the initial delay and repeats at the interval", async () => {
+    it("checks immediately on activation and repeats at the interval", async () => {
       const checkSpy = spySilentCheck();
 
       await lifecycle.activate(mockContext);
       expect(checkSpy).not.toHaveBeenCalled();
 
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(0);
       expect(checkSpy).toHaveBeenCalledTimes(1);
       expect(checkSpy).toHaveBeenCalledWith({ manual: false });
 
@@ -911,7 +922,7 @@ describe("ExtensionLifecycle", () => {
       );
 
       await lifecycle.activate(mockContext);
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(0);
       expect(checkSpy).toHaveBeenCalledTimes(1);
 
       // The periodic tick within the interval window is skipped.
@@ -933,7 +944,7 @@ describe("ExtensionLifecycle", () => {
       );
 
       await lifecycle.activate(mockContext);
-      await vi.advanceTimersByTimeAsync(15_000 + 5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
 
       expect(checkSpy).not.toHaveBeenCalled();
     });
@@ -943,7 +954,7 @@ describe("ExtensionLifecycle", () => {
 
       await lifecycle.activate(mockContext);
       await lifecycle.deactivate();
-      await vi.advanceTimersByTimeAsync(15_000 + 5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
 
       expect(checkSpy).not.toHaveBeenCalled();
     });
@@ -961,7 +972,7 @@ describe("ExtensionLifecycle", () => {
 
       await lifecycle.activate(mockContext);
       // Timer fires; the silent check is now in flight.
-      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(0);
       expect(checkSpy).toHaveBeenCalledTimes(1);
 
       await lifecycle.deactivate();
