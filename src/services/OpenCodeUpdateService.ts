@@ -29,10 +29,12 @@ import { isVersionNewer } from "./semver";
 const LAST_METHOD_KEY = "opencodeUpdate.lastMethod";
 const LAST_CHECK_AT_KEY = "opencodeUpdate.lastCheckAt";
 /**
- * Latest-version endpoints in fallback order: official npm registry
- * first, then China npm mirrors for when the official registry is
- * unreachable. All serve the same JSON `version` payload shape for the
- * v2 CLI package `@opencode/cli` (the update feature is v2-only).
+ * Latest-version endpoints raced concurrently: the official npm registry
+ * plus China npm mirrors for when the official registry is unreachable.
+ * All serve the same JSON `version` payload shape for the v2 CLI package
+ * `@opencode/cli` (the update feature is v2-only). The first endpoint to
+ * return a valid version wins; mirrors may lag the official registry by
+ * a few minutes, which is acceptable for a periodic update check.
  */
 const LATEST_VERSION_ENDPOINTS = [
   "https://registry.npmjs.org/@opencode/cli/latest",
@@ -1292,12 +1294,14 @@ export class OpenCodeUpdateService implements vscode.Disposable {
   }
 
   /**
-   * Tries each latest-version endpoint in order; rejects only when every
-   * endpoint (official registry and both mirrors) has failed.
+   * Races every latest-version endpoint concurrently; resolves with the
+   * first valid version and rejects only when every endpoint (official
+   * registry and both mirrors) has failed. Losing requests are left to
+   * finish or time out on their own; each per-endpoint failure lands in
+   * the debug log.
    */
   private async fetchLatestVersion(): Promise<string> {
-    let lastError: Error | undefined;
-    for (const endpoint of LATEST_VERSION_ENDPOINTS) {
+    const attempts = LATEST_VERSION_ENDPOINTS.map(async (endpoint) => {
       const host = new URL(endpoint).host;
       try {
         const version = await this.fetchNpmLatest(endpoint);
@@ -1306,14 +1310,19 @@ export class OpenCodeUpdateService implements vscode.Disposable {
         );
         return version;
       } catch (error) {
-        lastError =
+        const failure =
           error instanceof Error ? error : new Error(String(error));
         this.logger.debug(
-          `[OpenCodeUpdateService] latest version lookup failed on ${host}: ${lastError.message}`,
+          `[OpenCodeUpdateService] latest version lookup failed on ${host}: ${failure.message}`,
         );
+        throw failure;
       }
+    });
+    try {
+      return await Promise.any(attempts);
+    } catch {
+      throw new Error("all latest-version endpoints failed");
     }
-    throw lastError ?? new Error("all latest-version endpoints failed");
   }
 
   private async fetchNpmLatest(endpoint: string): Promise<string> {

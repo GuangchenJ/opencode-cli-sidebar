@@ -285,7 +285,7 @@ describe("OpenCodeUpdateService", () => {
       const result = await service.checkForUpdates();
 
       expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/mirrors\.tencent\.com returned 404/);
+      expect(result.error).toMatch(/all latest-version endpoints failed/);
       expect(service.status).toBe("idle");
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining("[OpenCodeUpdateService] update check failed"),
@@ -321,7 +321,7 @@ describe("OpenCodeUpdateService", () => {
       const result = await service.checkForUpdates();
 
       expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/mirrors\.tencent\.com.*missing version/);
+      expect(result.error).toMatch(/all latest-version endpoints failed/);
       expect(service.status).toBe("idle");
     });
 
@@ -374,7 +374,8 @@ describe("OpenCodeUpdateService", () => {
       const [a, b] = await Promise.all([first, second]);
 
       expect(a).toEqual(b);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // One check races all three endpoints concurrently.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it("rejects checkForUpdates while an update is in progress", async () => {
@@ -940,7 +941,7 @@ describe("OpenCodeUpdateService", () => {
       const result = await service.startUpdate("curl");
 
       expect(result.ok).toBe(false);
-      expect(result.error).toMatch(/network down/);
+      expect(result.error).toMatch(/all latest-version endpoints failed/);
       expect(execUpgrade).not.toHaveBeenCalled();
       expect(service.status).toBe("failed");
     });
@@ -1027,7 +1028,8 @@ describe("OpenCodeUpdateService", () => {
       const result = await service.startUpdate("curl");
 
       expect(result.ok).toBe(true);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      // Two checks; each races all three endpoints.
+      expect(fetchMock).toHaveBeenCalledTimes(6);
     });
 
     it.each(["2.0.8", "2.0.9"])(
@@ -1108,7 +1110,8 @@ describe("OpenCodeUpdateService", () => {
         installedVersion: "2.0.7",
       });
       expect(service.status).toBe("upToDate");
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      // Initial check plus the stale-target re-check: 2 × 3 raced calls.
+      expect(fetchMock).toHaveBeenCalledTimes(6);
       expect(
         execUpgrade.mock.calls.filter(([, args]) => args[0] === "upgrade"),
       ).toHaveLength(0);
@@ -1226,7 +1229,10 @@ describe("OpenCodeUpdateService", () => {
       const [check, result] = await Promise.all([pending, update]);
 
       expect(check.ok).toBe(false);
-      expect(result).toMatchObject({ ok: false, error: "network down" });
+      expect(result).toMatchObject({
+        ok: false,
+        error: "all latest-version endpoints failed",
+      });
       expect(execUpgrade).not.toHaveBeenCalled();
       expect(service.status).toBe("failed");
     });
