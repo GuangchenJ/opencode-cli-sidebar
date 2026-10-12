@@ -161,6 +161,31 @@ const scheduleAbsoluteReferenceSend = createFileSendScheduler(
     provider.formatFileReference({ path: toAbsoluteReference(uri) }),
 );
 
+/**
+ * Command IDs of the pre-rebrand `ai-sidebar-terminal` extension, mapped to
+ * their current equivalents. VS Code persists customized user keybindings by
+ * literal command ID, so entries pointing at the old IDs survive uninstalling
+ * the old extension and then surface as "command 'ai-sidebar-terminal.x' not
+ * found" while shadowing the new default keybindings. Registering the legacy
+ * IDs as aliases keeps those stale keybindings functional; because the IDs
+ * are not declared in `contributes.commands`, they never appear in the
+ * Command Palette.
+ */
+const LEGACY_COMMAND_ALIASES: Readonly<Record<string, string>> = {
+  "ai-sidebar-terminal.start": "opencode-cli-sidebar.start",
+  "ai-sidebar-terminal.focus": "opencode-cli-sidebar.focus",
+  "ai-sidebar-terminal.sendToTerminal": "opencode-cli-sidebar.sendToTerminal",
+  "ai-sidebar-terminal.sendAtMention": "opencode-cli-sidebar.sendAtMention",
+  "ai-sidebar-terminal.sendAllOpenFiles":
+    "opencode-cli-sidebar.sendAllOpenFiles",
+  "ai-sidebar-terminal.sendToAiTerminal": "opencode-cli-sidebar.sendToOpencode",
+  "ai-sidebar-terminal.sendAbsoluteToAiTerminal":
+    "opencode-cli-sidebar.sendAbsoluteToOpencode",
+  "ai-sidebar-terminal.paste": "opencode-cli-sidebar.paste",
+  "ai-sidebar-terminal.checkOpenCodeUpdates":
+    "opencode-cli-sidebar.checkOpenCodeUpdates",
+};
+
 export function registerTerminalCommands(
   deps: TerminalCommandDependencies,
 ): vscode.Disposable[] {
@@ -360,6 +385,13 @@ export function registerTerminalCommands(
     },
   );
 
+  const legacyAliasCommands = Object.entries(LEGACY_COMMAND_ALIASES).map(
+    ([legacyId, currentId]) =>
+      vscode.commands.registerCommand(legacyId, (...args: unknown[]) =>
+        vscode.commands.executeCommand(currentId, ...args),
+      ),
+  );
+
   return [
     startCommand,
     sendToTerminalCommand,
@@ -370,6 +402,7 @@ export function registerTerminalCommands(
     pasteCommand,
     focusCommand,
     checkOpenCodeUpdatesCommand,
+    ...legacyAliasCommands,
   ];
 }
 

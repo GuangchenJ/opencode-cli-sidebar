@@ -153,7 +153,47 @@ describe("registerTerminalCommands", () => {
         "opencode-cli-sidebar.checkOpenCodeUpdates",
       ]),
     );
-    expect(commands.size).toBe(9);
+    expect(commands.size).toBe(18);
+  });
+
+  it("registers legacy ai-sidebar-terminal aliases for all old command IDs", () => {
+    const commands = registerAndGetCommands(createDependencies());
+
+    expect(Array.from(commands.keys())).toEqual(
+      expect.arrayContaining([
+        "ai-sidebar-terminal.start",
+        "ai-sidebar-terminal.focus",
+        "ai-sidebar-terminal.sendToTerminal",
+        "ai-sidebar-terminal.sendAtMention",
+        "ai-sidebar-terminal.sendAllOpenFiles",
+        "ai-sidebar-terminal.sendToAiTerminal",
+        "ai-sidebar-terminal.sendAbsoluteToAiTerminal",
+        "ai-sidebar-terminal.paste",
+        "ai-sidebar-terminal.checkOpenCodeUpdates",
+      ]),
+    );
+  });
+
+  it("forwards legacy alias invocations to the current command", () => {
+    const deps = createDependencies();
+    const commands = registerAndGetCommands(deps);
+    vi.mocked(vscode.commands.executeCommand).mockClear();
+
+    getCommand(commands, "ai-sidebar-terminal.sendAtMention")();
+
+    expect(vscode.commands.executeCommand).toHaveBeenCalledTimes(1);
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "opencode-cli-sidebar.sendAtMention",
+    );
+
+    getCommand(commands, "ai-sidebar-terminal.sendToAiTerminal")(
+      "uri-or-context-arg",
+    );
+
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "opencode-cli-sidebar.sendToOpencode",
+      "uri-or-context-arg",
+    );
   });
 
   it("starts OpenCode from the start command", () => {
