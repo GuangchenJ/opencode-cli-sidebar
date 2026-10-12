@@ -82,7 +82,6 @@ describe("OpenCode update UI (webview)", () => {
 
     expect(pill().classList.contains("hidden")).toBe(false);
     expect(pill().classList.contains("is-entry")).toBe(true);
-    expect(pill().classList.contains("is-update")).toBe(true);
 
     resetStatus();
 
@@ -208,15 +207,89 @@ describe("OpenCode update UI (webview)", () => {
     expect(card().querySelector('[data-ocu-act="remediate"]')).toBeNull();
   });
 
-  it("shows the remediate step and abandon action inside the progress card", () => {
+  it("shows update progress as a toolbar line instead of a card", () => {
     resetStatus();
     applyOpenCodeUpdateStatus({
       state: "updating",
-      step: "remediate-trust",
+      step: "execute",
+      history: [
+        { step: "prepare-target", ok: true, label: "Resolve latest version" },
+        { step: "prepare-local", ok: true, label: "Read installed version" },
+      ],
     });
 
-    expect(card().textContent).toContain("Apply nvm trust setting");
-    expect(card().querySelector('[data-ocu-act="abandon"]')).not.toBeNull();
+    const line = document.getElementById("ocu-progress");
+    expect(line?.classList.contains("hidden")).toBe(false);
+    expect(line?.textContent).toContain("67% · Run install");
+    expect(line?.querySelector('[data-ocu-act="abandon"]')).toBeNull();
+    // No progress card anymore: updating renders no card.
+    expect(card().classList.contains("hidden")).toBe(true);
+
+    resetStatus();
+
+    expect(
+      document.getElementById("ocu-progress")?.classList.contains("hidden"),
+    ).toBe(true);
+  });
+
+  it("exposes the abandon exit on the progress line during remediation", () => {
+    vi.mocked(postMessage).mockClear();
+    vi.useFakeTimers();
+    try {
+      resetStatus();
+      applyOpenCodeUpdateStatus({
+        state: "updating",
+        step: "remediate-trust",
+      });
+
+      const line = document.getElementById("ocu-progress");
+      expect(line?.textContent).toContain("Apply nvm trust setting");
+      const abandon = line?.querySelector<HTMLButtonElement>(
+        '[data-ocu-act="abandon"]',
+      );
+      expect(abandon).not.toBeNull();
+
+      abandon?.click();
+
+      expect(postMessage).toHaveBeenCalledWith({
+        type: "abandonOpenCodeUpdate",
+      });
+      expect(card().textContent).toContain("Install abandoned");
+
+      vi.advanceTimersByTime(4500);
+      expect(card().classList.contains("hidden")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    resetStatus();
+  });
+
+  it("toggles the log drawer from the pill while updating", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "updating",
+      step: "execute",
+      history: [
+        { step: "prepare-target", ok: true, label: "Resolve latest version" },
+      ],
+    });
+
+    const drawerEl = document.getElementById("ocu-drawer");
+    expect(drawerEl?.classList.contains("hidden")).toBe(true);
+
+    pill().click();
+
+    expect(drawerEl?.classList.contains("hidden")).toBe(false);
+    expect(drawerEl?.textContent).toContain("Resolve latest version");
+    expect(postMessage).not.toHaveBeenCalled();
+
+    pill().click();
+
+    expect(drawerEl?.classList.contains("hidden")).toBe(true);
+
+    resetStatus();
   });
 
   it("restores the failure card after a transient hint expires", () => {
@@ -340,7 +413,6 @@ describe("OpenCode update UI (webview)", () => {
     const pillEl = pill();
     expect(pillEl.classList.contains("hidden")).toBe(false);
     expect(pillEl.classList.contains("is-entry")).toBe(true);
-    expect(pillEl.classList.contains("is-update")).toBe(false);
     expect(document.getElementById("ocu-version-text")?.textContent).toBe(
       "Install",
     );

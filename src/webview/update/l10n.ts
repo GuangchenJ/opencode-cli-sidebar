@@ -99,6 +99,4 @@ export const openCodeUpdateL10nStrings: Record<string, string> = {
 
   // Misc
   closeLabel: l10n.t('Close'),
-  progressShown: l10n.t('Installing OpenCode, progress card shown'),
-  stillInProgress: l10n.t('Install still in progress'),
 };

@@ -3,9 +3,10 @@
  *
  * Browser-only; all host I/O goes through WebviewMessage. The interaction
  * specification is the frozen prototype at docs/opencode-upgrade/index.html:
- * version pill as the sole update entry, anchored method popover, in-panel
- * card system (progress / blocked / success / failure / transient hints),
- * log drawer, collapse-vs-close semantics, abandon exit.
+ * version pill as the sole update entry, anchored method popover, a
+ * one-line toolbar progress text next to the pill for installs/updates,
+ * in-panel cards (success / blocked / failure / transient hints), log
+ * drawer, close semantics, abandon exit.
  */
 import type { CliInstallPromptAction, OpenCodeUpdateUiStatus } from "../../types";
 import { postMessage } from "../shared/vscode-api";
@@ -85,6 +86,8 @@ let status: OpenCodeUpdateUiStatus | null = null;
 
 let pill: HTMLButtonElement | null = null;
 let pillText: HTMLElement | null = null;
+/** Toolbar progress line right of the version pill (updating state). */
+let progressLine: HTMLElement | null = null;
 let popover: HTMLDivElement | null = null;
 let popList: HTMLElement | null = null;
 let card: HTMLElement | null = null;
@@ -93,7 +96,6 @@ let drawerBody: HTMLElement | null = null;
 let liveRegion: HTMLElement | null = null;
 
 type CardMode =
-  | "progress"
   | "success"
   | "manual"
   | "verify"
@@ -102,8 +104,6 @@ type CardMode =
   | "checking";
 
 let cardMode: CardMode | null = null;
-/** Flow cards (progress) collapse instead of closing. */
-let cardCollapsed = false;
 let hintTimer: ReturnType<typeof setTimeout> | null = null;
 
 let popFocused = 0;
@@ -143,6 +143,22 @@ export function initOpenCodeUpdateUi(): void {
 
   pill = document.getElementById("btn-oc-version") as HTMLButtonElement | null;
   pillText = document.getElementById("ocu-version-text");
+
+  progressLine = document.createElement("span");
+  progressLine.className = "ocu-progress hidden";
+  progressLine.id = "ocu-progress";
+  progressLine.setAttribute("role", "status");
+  pill?.insertAdjacentElement("afterend", progressLine);
+  progressLine.addEventListener("click", (e) => {
+    if (
+      (e.target as HTMLElement).closest<HTMLElement>(
+        '[data-ocu-act="abandon"]',
+      )
+    ) {
+      postMessage({ type: "abandonOpenCodeUpdate" });
+      showHintCard(t("abandonedHint", "Install abandoned"));
+    }
+  });
 
   liveRegion = document.createElement("div");
   liveRegion.className = "ocu-sr-only";
@@ -226,11 +242,12 @@ export function applyOpenCodeUpdateStatus(next: OpenCodeUpdateUiStatus): void {
   finishInstallPromptRetry();
   renderPill();
   updateMenuGate();
+  renderProgressLine();
   if (popover && !popover.classList.contains("hidden") && !isPopoverState(status.state)) {
     closePopover(false);
   }
   const notice = next.notice;
-  if (notice && !isBusyState(status.state)) {
+  if (notice) {
     showHintCard(notice);
   } else if (
     cardMode === "checking" &&
@@ -283,7 +300,6 @@ function renderPill(): void {
   pill.classList.remove("hidden");
   pill.disabled = false;
   pill.classList.toggle("is-entry", entryA);
-  pill.classList.toggle("is-update", st.state === "available");
   pill.classList.toggle("is-updating", busy);
 
   if (busy) {
@@ -329,50 +345,63 @@ function updateMenuGate(): void {
   item.classList.toggle("is-disabled", featureOn && status ? isBusyState(status.state) : false);
 }
 
-// ── Cards ──
+// ── Toolbar progress line ──
 
-function flowMode(mode: CardMode | null): boolean {
-  return mode === "progress";
+/** Percent complete for the updating flow, from history vs. current step. */
+function progressPercent(): number {
+  const history = status?.history ?? [];
+  const stepId = status?.step ?? "";
+  const total = history.length + (stepId ? 1 : 0);
+  return total > 0 ? Math.round((history.length / total) * 100) : 100;
 }
+
+function progressStepText(): string {
+  const stepId = status?.step ?? "";
+  return STEP_LABELS[stepId] ?? status?.detail ?? stepId;
+}
+
+/**
+ * One-line install/update progress right of the version pill; the
+ * in-panel progress card no longer exists. Remediation steps expose
+ * the abandon exit inline.
+ */
+function renderProgressLine(): void {
+  if (!progressLine) return;
+  const st = status;
+  if (!st || !isBusyState(st.state)) {
+    progressLine.classList.add("hidden");
+    progressLine.innerHTML = "";
+    return;
+  }
+  const inRemediation =
+    st.step === "remediate-trust" || st.step === "remediate-reshim";
+  progressLine.innerHTML =
+    '<span class="ocu-progress-text">' +
+    escapeHtml(progressPercent() + "% · " + progressStepText()) +
+    "</span>" +
+    (inRemediation
+      ? '<button type="button" class="ocu-progress-x" data-ocu-act="abandon" aria-label="' +
+        escapeHtml(t("abandonUpdate", "Abandon install")) +
+        '">' +
+        ICONS.x +
+        "</button>"
+      : "");
+  progressLine.classList.remove("hidden");
+}
+
+// ── Cards ──
 
 function hideCardFull(): void {
   if (!card) return;
   const hadFocus = card.contains(document.activeElement);
   card.classList.add("hidden");
   card.innerHTML = "";
-  card.classList.remove("pulse");
   cardMode = null;
-  cardCollapsed = false;
   if (hintTimer !== null) {
     clearTimeout(hintTimer);
     hintTimer = null;
   }
   if (hadFocus && pill && !pill.disabled) pill.focus();
-}
-
-function collapseCard(): void {
-  if (!card || card.classList.contains("hidden")) return;
-  const hadFocus = card.contains(document.activeElement);
-  card.classList.add("hidden");
-  cardCollapsed = true;
-  if (hadFocus && pill) pill.focus();
-}
-
-/** X / Esc: flow cards collapse (re-showable via pill), others close. */
-function closeOrCollapseCard(): void {
-  if (flowMode(cardMode) && status && isBusyState(status.state)) {
-    collapseCard();
-  } else {
-    hideCardFull();
-  }
-}
-
-function pulseCard(): void {
-  if (!card) return;
-  card.classList.remove("pulse");
-  void card.offsetWidth;
-  card.classList.add("pulse");
-  announce(t("stillInProgress", "Install still in progress"));
 }
 
 /** Progress heads are text-only; info/error heads keep their icon. */
@@ -399,63 +428,12 @@ function cardHead(kind: "prog" | "info" | "error", title: string): string {
   );
 }
 
-function stepRowsHtml(): string {
-  const history = status?.history ?? [];
-  const stepId = status?.step ?? "";
-  let html = "";
-  for (const entry of history) {
-    const state = entry.ok ? "done" : "fail";
-    html +=
-      '<li class="' +
-      state +
-      '"><span class="ocu-st-ic">' +
-      (entry.ok ? ICONS.check : ICONS.x) +
-      "</span><span>" +
-      escapeHtml(entry.label || STEP_LABELS[entry.step] || entry.step) +
-      "</span></li>";
-  }
-  if (stepId) {
-    const detail = status?.detail ?? "";
-    html +=
-      '<li class="active"><span class="ocu-st-ic ocu-spin">' +
-      ICONS.sync +
-      "</span><span>" +
-      escapeHtml(STEP_LABELS[stepId] ?? detail ?? stepId) +
-      "</span>" +
-      (detail ? '<span class="ocu-cmd">' + escapeHtml(detail) + "</span>" : "") +
-      "</li>";
-  }
-  const total = history.length + (stepId ? 1 : 0);
-  const frac = total > 0 ? String(Math.round((history.length / total) * 100)) : "100";
-  return (
-    '<ol class="ocu-steps">' +
-    html +
-    '</ol><div class="ocu-progbar"><div class="ocu-fill" style="width:' +
-    frac +
-    '%"></div></div>'
-  );
-}
-
 function buildCard(mode: CardMode): void {
   if (!card) return;
   const st = status;
   let html = "";
 
-  if (mode === "progress") {
-    html = cardHead("prog", t("progressTitle", "Installing OpenCode"));
-    // Auto-fix steps stay in the step list and expose the abandon exit.
-    const inRemediation =
-      st?.step === "remediate-trust" || st?.step === "remediate-reshim";
-    html +=
-      '<div class="ocu-card-body">' +
-      stepRowsHtml() +
-      (inRemediation
-        ? '<div class="ocu-card-actions"><button type="button" class="ocu-btn" data-ocu-act="abandon">' +
-          escapeHtml(t("abandonUpdate", "Abandon install")) +
-          "</button></div>"
-        : "") +
-      "</div>";
-  } else if (mode === "success") {
+  if (mode === "success") {
     html = cardHead("info", format(t("successTitle", "OpenCode {0} installed."), st?.installedVersion ?? st?.targetVersion ?? ""));
     if (st?.sessionAutoStarted) {
       // The host already booted the session: restart actions would
@@ -531,36 +509,31 @@ function renderCard(): void {
     !st ||
     st.state === "idle" ||
     st.state === "available" ||
-    st.state === "installable"
+    st.state === "installable" ||
+    st.state === "updating"
   ) {
     if (cardMode !== "hint" && cardMode !== "checking") hideCardFull();
     return;
   }
-  if (cardMode === "hint" && !isBusyState(st.state)) {
+  if (cardMode === "hint") {
     // The transient hint owns the card slot until it expires; the
     // expiry callback re-renders whatever the current status maps to.
-    // Busy states override immediately so a just-started update is
-    // never hidden behind a leftover hint.
     return;
   }
 
   const manualCommands = st.manualCommands ?? st.remediationCommands ?? [];
-  const target: CardMode =
-    st.state === "updating"
-      ? "progress"
-      : st.state === "success"
-        ? "success"
-        : manualCommands.length
-          ? "manual"
-          : st.installedVersion
-            ? "verify"
-            : "generic";
+  const target: CardMode = st.state === "success"
+    ? "success"
+    : manualCommands.length
+      ? "manual"
+      : st.installedVersion
+        ? "verify"
+        : "generic";
 
   const modeChanged = target !== cardMode;
   cardMode = target;
-  if (modeChanged) cardCollapsed = false;
   buildCard(target);
-  if (!cardCollapsed) card.classList.remove("hidden");
+  card.classList.remove("hidden");
   if (modeChanged && target === "success") {
     card.querySelector<HTMLButtonElement>('[data-ocu-act="restart"]')?.focus();
   }
@@ -573,7 +546,6 @@ function showHintCard(text: string): void {
     hintTimer = null;
   }
   cardMode = "hint";
-  cardCollapsed = false;
   card.setAttribute("role", "status");
   card.innerHTML =
     cardHead("info", text) + '<div class="ocu-card-body"></div>';
@@ -592,7 +564,6 @@ function showHintCard(text: string): void {
 function showCheckingCard(): void {
   if (!card) return;
   cardMode = "checking";
-  cardCollapsed = false;
   card.setAttribute("role", "status");
   card.innerHTML =
     cardHead("prog", t("checkingUpdates", "Checking for updates…")) +
@@ -1020,15 +991,12 @@ function bindEvents(): void {
     if (cardMode === "checking") return;
     if (!status) return;
     if (isBusyState(status.state)) {
-      // State B: re-show the collapsed flow card, or pulse when visible.
-      if (flowMode(cardMode) && card) {
-        if (card.classList.contains("hidden")) {
-          cardCollapsed = false;
-          card.classList.remove("hidden");
-          announce(t("progressShown", "Installing OpenCode, progress card shown"));
-        } else {
-          pulseCard();
-        }
+      // State B: the toolbar progress line carries the live status; the
+      // pill toggles the log drawer for the step history.
+      if (drawer && !drawer.classList.contains("hidden")) {
+        closeDrawer(false);
+      } else {
+        openDrawer();
       }
       return;
     }
@@ -1062,7 +1030,7 @@ function bindEvents(): void {
           hideCardFull();
           postMessage({ type: "dismissOpenCodeUpdate" });
         } else {
-          closeOrCollapseCard();
+          hideCardFull();
         }
       } else if (action === "restart") {
         hideCardFull();
@@ -1171,7 +1139,7 @@ function bindEvents(): void {
         hideCardFull();
         postMessage({ type: "dismissOpenCodeUpdate" });
       } else {
-        closeOrCollapseCard();
+        hideCardFull();
       }
     }
   });
