@@ -34,9 +34,31 @@ html {
   background-color: inherit;
 }
 
-/* Hide xterm.js built-in scrollbar overlay — not needed in fullscreen TUI mode */
-.xterm-viewport::-webkit-scrollbar {
-  display: none;
+/* xterm 6.0.0 keeps a legacy `.xterm-viewport` shell (absolute, inset 0) that
+   no longer hosts any content — scrolling moved to `.xterm-scrollable-element`.
+   Its native `overflow-y: scroll` still paints a classic Windows scrollbar with
+   stepper arrow buttons, and hiding only `::-webkit-scrollbar` can leave the
+   `::-webkit-scrollbar-button` pseudo-element painted in Electron. Disable the
+   shell's scrolling entirely and zero out every scrollbar pseudo so no native
+   arrow remnant survives. See microsoft/vscode#292945 for the same fix upstream. */
+.xterm-viewport {
+  overflow: hidden !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.xterm-viewport::-webkit-scrollbar,
+.xterm-viewport::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Belt-and-suspenders: no native scrollbar arrows anywhere in the terminal
+   area. xterm's custom scrollbar is pure DOM and unaffected by these rules. */
+#terminal-container ::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 /* xterm's custom scrollbar is position:absolute with a fixed 14px width even
