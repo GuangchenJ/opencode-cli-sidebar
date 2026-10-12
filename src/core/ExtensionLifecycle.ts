@@ -310,6 +310,11 @@ export class ExtensionLifecycle {
 
   // ── Missing-CLI install prompt ──
 
+  /** True while an install or update flow owns the service state. */
+  private isUpdateRunning(service: OpenCodeUpdateService): boolean {
+    return service.status === "updating";
+  }
+
   /**
    * Detects a missing OpenCode CLI after activation and surfaces the
    * install flow in the webview: the service enters the installable
@@ -325,7 +330,7 @@ export class ExtensionLifecycle {
     if (!service || !context) {
       return;
     }
-    if (this.isUpdateFlowBusy(service)) {
+    if (this.isUpdateRunning(service)) {
       return;
     }
 
@@ -343,8 +348,10 @@ export class ExtensionLifecycle {
     if (cliAvailable) {
       return;
     }
-    // The probe took time; an update flow may have started meanwhile.
-    if (this.isUpdateFlowBusy(service)) {
+    // The probe took time; an install or update flow may have started
+    // meanwhile and owns the state. A racing silent check ("checking" or
+    // its "disabled" verdict) does not block: markCliMissing outranks it.
+    if (this.isUpdateRunning(service)) {
       return;
     }
 
@@ -352,10 +359,6 @@ export class ExtensionLifecycle {
     // armed on every activation while the CLI is missing.
     service.markCliMissing(true);
     await this.tuiProvider?.revealSidebarView();
-  }
-
-  private isUpdateFlowBusy(service: OpenCodeUpdateService): boolean {
-    return service.status === "updating" || service.status === "checking";
   }
 
   /**

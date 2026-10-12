@@ -451,6 +451,44 @@ describe("OpenCodeUpdateService", () => {
       expect(second).toMatchObject({ ok: true, state: "updateSucceeded" });
       expect(execUpgrade).toHaveBeenCalledTimes(2);
     });
+
+    it("re-arms installable when the CLI probe follows a disabled check verdict", async () => {
+      failVersion();
+      const { service } = makeService();
+
+      const result = await service.checkForUpdates();
+      expect(result.state).toBe("disabled");
+      expect(service.status).toBe("disabled");
+
+      // The activation availability probe settles after the racing check:
+      // its fresh "CLI missing" verdict must outrank the stale disabled one.
+      service.markCliMissing(true);
+      expect(service.status).toBe("installable");
+    });
+
+    it("keeps an installable state armed while a check is still resolving", async () => {
+      let releaseVersion: ((stdout: string) => void) | undefined;
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        releaseVersion = (stdout: string) => lastArgAsCb(args)(null, stdout);
+        return {} as ReturnType<typeof execFile>;
+      });
+      const { service } = makeService();
+
+      const check = service.checkForUpdates();
+      await vi.waitFor(() => expect(releaseVersion).toBeDefined());
+      expect(service.status).toBe("checking");
+
+      // The activation probe arms the install entry mid-check.
+      service.markCliMissing(true);
+      expect(service.status).toBe("installable");
+
+      releaseVersion?.("");
+      const result = await check;
+
+      expect(result.ok).toBe(true);
+      expect(result.state).toBe("installable");
+      expect(service.status).toBe("installable");
+    });
   });
 
   describe("probeLocalVersion", () => {

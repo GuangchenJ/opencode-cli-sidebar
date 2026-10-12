@@ -382,11 +382,16 @@ export class OpenCodeUpdateService implements vscode.Disposable {
       this.setStatus(previous, { manual });
       return { ...result, state: this.currentState };
     }
-    if (result.state === "disabled" && this.comesFromInstallable(previous)) {
+    if (
+      result.state === "disabled" &&
+      (this.comesFromInstallable(previous) ||
+        this.currentState === "installable")
+    ) {
       // The CLI is still missing: keep the installable entry instead of
-      // letting a scheduled or manual check hide it again. Covers both a
-      // fresh installable state and a failed install whose re-check must
-      // return to the install entry (resumeState records the flow origin).
+      // letting a scheduled or manual check hide it again. Covers a fresh
+      // installable state, a failed install whose re-check must return to
+      // the install entry (resumeState records the flow origin), and the
+      // availability probe arming the entry while this check was in flight.
       this.setStatus(
         "installable",
         this.installablePayload(this.installPromptPending),
@@ -780,14 +785,19 @@ export class OpenCodeUpdateService implements vscode.Disposable {
    * `prompt` additionally arms the in-webview install confirmation
    * dialog (internal flows such as a failed re-detect pass false to
    * keep the state without re-arming the dialog). Idempotent: states
-   * outside idle/failed/installable (an in-flight flow or a resolved
-   * check result) are never overwritten.
+   * running a flow (updating) or holding a resolved present-CLI result
+   * (available/upToDate/updateSucceeded) are never overwritten. The
+   * activation availability probe may land while a silent check is
+   * still "checking" or after it resolved "disabled" (no CLI at all);
+   * its fresh verdict outranks the check and must yield the entry.
    */
   public markCliMissing(prompt = true): void {
     if (
       this.currentState !== "idle" &&
       this.currentState !== "failed" &&
-      this.currentState !== "installable"
+      this.currentState !== "installable" &&
+      this.currentState !== "checking" &&
+      this.currentState !== "disabled"
     ) {
       this.logger.debug(
         `[OpenCodeUpdateService] markCliMissing ignored in state ${this.currentState}`,
