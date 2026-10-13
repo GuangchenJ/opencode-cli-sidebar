@@ -80,7 +80,9 @@ export type WebviewMessage =
   /** Install confirmation "Re-detect" button; host re-probes the CLI. */
   | { type: "retryCliProbe" }
   /** Missing-CLI install confirmation dialog answer. */
-  | { type: "answerCliInstallPrompt"; action: CliInstallPromptAction };
+  | { type: "answerCliInstallPrompt"; action: CliInstallPromptAction }
+  | { type: "requestOpenCodeChangelog" }
+  | { type: "sendChangelogToOpenCode"; text: string };
 
 export const ALLOWED_IMAGE_TYPES = [
   "image/png",
@@ -235,7 +237,17 @@ export type HostMessage =
   /** OpenCode session (re)started; cli.json plugin version pins are now active. */
   | { type: "openCodeSessionStarted" }
   /** Single push channel driving the OpenCode self-update UI. */
-  | { type: "openCodeUpdateStatus"; status: OpenCodeUpdateUiStatus };
+  | { type: "openCodeUpdateStatus"; status: OpenCodeUpdateUiStatus }
+  | { type: "openCodeChangelog"; payload: OpenCodeChangelogPayload };
+
+/** Release-notes payload for the in-webview changelog dialog. */
+export interface OpenCodeChangelogPayload {
+  version: string;
+  ok: boolean;
+  date?: string;
+  html?: string;
+  fallbackUrl: string;
+}
 
 /** Step ids used by the OpenCode self-update pipeline (aligned with OpenCodeUpdateService). */
 export type OpenCodeUpdateStep =
@@ -281,6 +293,13 @@ export interface OpenCodeUpdateUiStatus {
   currentVersion?: string;
   /** Latest released version; falls back to targetVersion in tooltips. */
   latestVersion?: string;
+  /**
+   * One-shot marker on the push that resolves a check: `upToDate` when
+   * the CLI is already current (the UI state is `idle` there). Lets the
+   * changelog dialog distinguish "already current" from a failed check
+   * without matching localized notice text.
+   */
+  checkOutcome?: "upToDate";
   /** Method choices parsed from CLI help; omitted uses the built-in list. */
   methods?: string[];
   /** Host-computed default method for popover preselection. */

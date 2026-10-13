@@ -20,6 +20,7 @@ import {
   getOpenCodeUpdateConfig,
   OpenCodeUpdateService,
 } from "../services/OpenCodeUpdateService";
+import { OpenCodeChangelogService } from "../services/OpenCodeChangelogService";
 import { IdeContextServer } from "../services/ideContext/IdeContextServer";
 import { PortManager } from "../services/PortManager";
 import { ConnectionResolver } from "../services/ConnectionResolver";
@@ -158,6 +159,10 @@ export class ExtensionLifecycle {
         { logger },
       );
       context.subscriptions.push(this.opencodeUpdateService);
+      const openCodeChangelogService = new OpenCodeChangelogService(
+        context.globalState,
+        { logger },
+      );
 
       context.subscriptions.push(this.contextManager);
       context.subscriptions.push(this.instanceDiscoveryService);
@@ -196,6 +201,7 @@ export class ExtensionLifecycle {
         nativeTerminalManager,
         ideContextServer,
         this.opencodeUpdateService,
+        openCodeChangelogService,
       );
 
       this.tuiProviderRegistration?.dispose();

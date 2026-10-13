@@ -69,6 +69,8 @@ export interface MessageRouterProviderBridge {
   dismissOpenCodeUpdate(): void;
   retryCliProbe(): Promise<void>;
   answerCliInstallPrompt(action: CliInstallPromptAction): Promise<void>;
+  requestOpenCodeChangelog(): Promise<void>;
+  sendChangelogToOpenCode(text: string): Promise<void>;
 }
 
 export class MessageRouter {
@@ -243,6 +245,14 @@ export class MessageRouter {
       case "answerCliInstallPrompt":
         if (message.action === "install" || message.action === "notNow") {
           await this.provider.answerCliInstallPrompt(message.action);
+        }
+        break;
+      case "requestOpenCodeChangelog":
+        await this.provider.requestOpenCodeChangelog();
+        break;
+      case "sendChangelogToOpenCode":
+        if (typeof message.text === "string" && message.text) {
+          await this.provider.sendChangelogToOpenCode(message.text);
         }
         break;
       default:

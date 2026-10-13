@@ -8,7 +8,11 @@
  * in-panel cards (success / blocked / failure / transient hints), log
  * drawer, close semantics, abandon exit.
  */
-import type { CliInstallPromptAction, OpenCodeUpdateUiStatus } from "../../types";
+import type {
+  CliInstallPromptAction,
+  OpenCodeChangelogPayload,
+  OpenCodeUpdateUiStatus,
+} from "../../types";
 import { postMessage } from "../shared/vscode-api";
 
 // ── Strings (injected host-side; see update/l10n.ts) ──
@@ -35,7 +39,7 @@ const DEFAULT_METHODS = ["curl", "npm", "pnpm", "bun", "yarn", "vp", "brew"];
 const STEP_LABELS: Record<string, string> = {
   "prepare-target": t("stepPrepareTarget", "Resolve latest version"),
   "prepare-local": t("stepPrepareLocal", "Read installed version"),
-  execute: t("stepExecute", "Run install"),
+  execute: t("stepExecute", "Downloading and installing"),
   reshim: t("stepReshim", "Sync nvm shim"),
   verify: t("stepVerify", "Verify version"),
   "remediate-trust": t("stepRemediateTrust", "Apply nvm trust setting"),
@@ -69,6 +73,8 @@ const ICONS = {
     '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>',
   copy:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  send:
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>',
 };
 
 function escapeHtml(s: string): string {
@@ -111,6 +117,15 @@ let popFocused = 0;
 // ── Missing-CLI install confirmation (srp-overlay pattern) ──
 
 let installPrompt: HTMLDivElement | null = null;
+/** Changelog overlay; lazily built on first use, reused afterwards. */
+let changelogDialog: HTMLDivElement | null = null;
+/** Version of the rendered changelog; used by the send prompt suffix. */
+let changelogVersion = "";
+/** True while the post-update restart behind the dialog is in flight. */
+let changelogRestartPending = false;
+let changelogRestartTimer: ReturnType<typeof setTimeout> | null = null;
+/** True while a changelog-dialog check is resolving back into the dialog. */
+let changelogCheckFromDialog = false;
 /**
  * Last seen pending value: only a rising edge (false → true) may show
  * the dialog, so status re-pushes never re-pop it. The host clears the
@@ -188,6 +203,9 @@ export function initOpenCodeUpdateUi(): void {
     "</span><span>" +
     escapeHtml(t("hintMove", "Up and down to switch")) +
     "</span></span>" +
+    '<button type="button" class="ocu-pop-link hidden" id="ocu-pop-changelog">' +
+    escapeHtml(t("changelogLabel", "Changelog")) +
+    "</button>" +
     '<button type="button" class="ocu-pop-cancel" id="ocu-pop-cancel">' +
     escapeHtml(t("cancelLabel", "Cancel")) +
     "</button></div>";
@@ -230,7 +248,9 @@ function isBusyState(state: string): boolean {
 
 /** States whose pill click opens the method popover. */
 function isPopoverState(state: string): boolean {
-  return state === "available" || state === "installable";
+  // "failed" retries the update flow: the pill keeps the entry look and
+  // the popover re-offers the methods (changelog included).
+  return state === "available" || state === "installable" || state === "failed";
 }
 
 export function applyOpenCodeUpdateStatus(next: OpenCodeUpdateUiStatus): void {
@@ -243,6 +263,20 @@ export function applyOpenCodeUpdateStatus(next: OpenCodeUpdateUiStatus): void {
   renderPill();
   updateMenuGate();
   renderProgressLine();
+  if (changelogCheckFromDialog && !isBusyState(status.state)) {
+    // A check started from the changelog dialog resolves back into it: a
+    // found update hands over to the method popover, anything else
+    // reports in the dialog footer.
+    changelogCheckFromDialog = false;
+    if (status.state === "available") {
+      hideChangelogDialog();
+      openPopover();
+    } else {
+      setChangelogCheckUi(
+        next.checkOutcome === "upToDate" ? "upToDate" : "failed",
+      );
+    }
+  }
   if (popover && !popover.classList.contains("hidden") && !isPopoverState(status.state)) {
     closePopover(false);
   }
@@ -306,14 +340,12 @@ function renderPill(): void {
     pill.setAttribute("title", t("updatingTooltip", "Installing OpenCode, click to view progress"));
     pill.setAttribute("aria-label", t("viewProgressLabel", "View install progress"));
   } else if (st.state === "failed") {
-    pill.setAttribute(
-      "title",
-      t("retryTooltip", "Last install failed. Click to check again"),
+    const label = t(
+      "failedRetryTooltip",
+      "Update did not finish. Click to try again",
     );
-    pill.setAttribute(
-      "aria-label",
-      t("retryTooltip", "Last install failed. Click to check again"),
-    );
+    pill.setAttribute("title", label);
+    pill.setAttribute("aria-label", label);
   } else if (st.state === "installable") {
     const label = t(
       "installTooltip",
@@ -329,7 +361,10 @@ function renderPill(): void {
     );
     pill.setAttribute("aria-label", t("updateLabel", "Install OpenCode"));
   } else {
-    const label = t("checkTooltip", "Click to check for updates");
+    const label = t(
+      "pillChangelogTooltip",
+      "View the current version's changelog",
+    );
     pill.setAttribute("title", label);
     pill.setAttribute("aria-label", label);
   }
@@ -376,8 +411,11 @@ function renderProgressLine(): void {
   const inRemediation =
     st.step === "remediate-trust" || st.step === "remediate-reshim";
   progressLine.innerHTML =
+    '<span class="ocu-progress-spin" aria-hidden="true">' +
+    ICONS.sync +
+    "</span>" +
     '<span class="ocu-progress-text">' +
-    escapeHtml(progressPercent() + "% · " + progressStepText()) +
+    escapeHtml(progressStepText() + " " + progressPercent() + "%") +
     "</span>" +
     (inRemediation
       ? '<button type="button" class="ocu-progress-x" data-ocu-act="abandon" aria-label="' +
@@ -441,7 +479,10 @@ function buildCard(mode: CardMode): void {
       html +=
         '<div class="ocu-card-body"><p class="ocu-card-msg">' +
         escapeHtml(t("sessionAutoStarted", "OpenCode session started automatically.")) +
-        "</p></div>";
+        '</p><div class="ocu-card-actions">' +
+        '<button type="button" class="ocu-btn" data-ocu-act="changelog">' +
+        escapeHtml(t("changelogLabel", "Changelog")) +
+        "</button></div></div>";
     } else {
       html +=
         '<div class="ocu-card-body"><p class="ocu-card-msg">' +
@@ -449,6 +490,9 @@ function buildCard(mode: CardMode): void {
         '</p><div class="ocu-card-actions">' +
         '<button type="button" class="ocu-btn ocu-btn-primary" data-ocu-act="restart">' +
         escapeHtml(t("restartNow", "Restart now")) +
+        "</button>" +
+        '<button type="button" class="ocu-btn" data-ocu-act="restart-changelog">' +
+        escapeHtml(t("restartWithChangelog", "Restart and view changelog")) +
         "</button>" +
         '<button type="button" class="ocu-btn" data-ocu-act="later">' +
         escapeHtml(t("later", "Later")) +
@@ -714,6 +758,13 @@ function openPopover(): void {
     titleEl.textContent = titleText;
   }
   popList?.setAttribute("aria-label", titleText);
+  // Release notes make sense wherever an update flow is pending.
+  popover
+    .querySelector("#ocu-pop-changelog")
+    ?.classList.toggle(
+      "hidden",
+      status.state !== "available" && status.state !== "failed",
+    );
   renderPopoverRows();
   const pref =
     status.lastUsedMethod ?? status.detectedMethod ?? status.defaultMethod ?? "npm";
@@ -742,6 +793,12 @@ function refreshOpenPopover(): void {
     titleEl.textContent = popoverTitleText();
   }
   popList?.setAttribute("aria-label", popoverTitleText());
+  popover
+    .querySelector("#ocu-pop-changelog")
+    ?.classList.toggle(
+      "hidden",
+      status?.state !== "available" && status?.state !== "failed",
+    );
   renderPopoverRows();
   const count = methods().length;
   if (popFocused >= count) popFocused = Math.max(0, count - 1);
@@ -920,6 +977,294 @@ function answerInstallPrompt(action: CliInstallPromptAction): void {
   }
 }
 
+// ── Changelog dialog ──
+
+/** Renders the host's changelog answer into the open dialog. */
+export function applyOpenCodeChangelog(
+  payload: OpenCodeChangelogPayload,
+): void {
+  const dialog = changelogDialog;
+  if (!dialog || dialog.classList.contains("hidden")) {
+    return;
+  }
+  dialog.dataset.ocuClUrl = payload.fallbackUrl;
+  const title = dialog.querySelector<HTMLElement>("#ocu-cl-title");
+  const body = dialog.querySelector<HTMLElement>("#ocu-cl-body");
+  const actionBtns = dialog.querySelectorAll<HTMLElement>(
+    ".ocu-cl-copy, .ocu-cl-send",
+  );
+  if (!body) {
+    return;
+  }
+  if (payload.ok) {
+    changelogVersion = payload.version;
+    actionBtns.forEach((btn) => btn.classList.remove("hidden"));
+    // During the post-update restart the session cannot accept sends.
+    setChangelogSendEnabled(!changelogRestartPending);
+    if (title) {
+      title.textContent = payload.version
+        ? "OpenCode " + payload.version
+        : t("changelogLabel", "Changelog");
+    }
+    body.innerHTML =
+      (payload.date
+        ? '<p class="ocu-cl-date">' + escapeHtml(payload.date) + "</p>"
+        : "") +
+      (payload.html ?? "");
+    return;
+  }
+  actionBtns.forEach((btn) => btn.classList.add("hidden"));
+  if (title) {
+    title.textContent = t("changelogLabel", "Changelog");
+  }
+  body.innerHTML =
+    '<p class="ocu-cl-msg">' +
+    escapeHtml(
+      t("changelogFailed", "Changelog is unavailable for this version."),
+    ) +
+    "</p>" +
+    '<div class="ocu-cl-actions"><button type="button" class="ocu-btn" data-ocu-cl="open">' +
+    escapeHtml(t("changelogOpenInBrowser", "Open in browser")) +
+    "</button></div>";
+}
+
+function buildChangelogDialog(): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "ocu-cl-overlay hidden";
+  el.id = "ocu-changelog";
+  el.dataset.ocuClUrl = "";
+  el.innerHTML =
+    '<div class="ocu-cl-dialog" role="dialog" aria-modal="true" aria-labelledby="ocu-cl-title">' +
+    '<div class="ocu-cl-head"><span id="ocu-cl-title"></span>' +
+    '<button type="button" class="ocu-cl-copy hidden" data-ocu-cl="copy" aria-label="' +
+    escapeHtml(t("changelogCopy", "Copy changelog")) +
+    '">' +
+    ICONS.copy +
+    '<span class="ocu-copy-label">' +
+    escapeHtml(t("copy", "Copy")) +
+    "</span></button>" +
+    '<button type="button" class="ocu-cl-send hidden" data-ocu-cl="send" aria-label="' +
+    escapeHtml(t("changelogSend", "Send to OpenCode")) +
+    '">' +
+    ICONS.send +
+    '<span class="ocu-copy-label">' +
+    escapeHtml(t("changelogSend", "Send to OpenCode")) +
+    "</span></button>" +
+    '<button type="button" class="ocu-cl-x" data-ocu-cl="close" aria-label="' +
+    escapeHtml(t("closeLabel", "Close")) +
+    '">' +
+    ICONS.x +
+    "</button></div>" +
+    '<div class="ocu-cl-body" id="ocu-cl-body" tabindex="0"></div>' +
+    '<div class="ocu-cl-foot"><span class="ocu-cl-status" id="ocu-cl-status" role="status"></span>' +
+    '<button type="button" class="ocu-btn" data-ocu-cl="check">' +
+    escapeHtml(t("changelogCheck", "Check for new version")) +
+    "</button></div>" +
+    "</div>";
+
+  el.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    const act = target.closest<HTMLElement>("[data-ocu-cl]");
+    if (act) {
+      const action = act.dataset.ocuCl;
+      if (action === "close") {
+        hideChangelogDialog();
+      } else if (action === "check") {
+        if (!changelogCheckFromDialog) {
+          changelogCheckFromDialog = true;
+          setChangelogCheckUi("checking");
+          postMessage({ type: "checkOpenCodeUpdates" });
+        }
+      } else if (action === "copy") {
+        const text = changelogPlainText(el);
+        if (text) {
+          copyText(text, act);
+        }
+      } else if (action === "send") {
+        const text = changelogPlainText(el);
+        if (text) {
+          postMessage({
+            type: "sendChangelogToOpenCode",
+            text:
+              text +
+              "\n---\n" +
+              format(
+                t(
+                  "changelogSendPrompt",
+                  "The above is the OpenCode {0} changelog. Please summarize it.",
+                ),
+                changelogVersion,
+              ),
+          });
+          flashSendLabel(act);
+          hideChangelogDialog();
+        }
+      } else if (action === "open") {
+        const url = el.dataset.ocuClUrl ?? "";
+        if (url) {
+          postMessage({ type: "openUrl", url });
+        }
+      }
+      return;
+    }
+    // Release-note links point at GitHub: route them through the host's
+    // external opener instead of navigating the webview.
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (link) {
+      e.preventDefault();
+      const href = link.getAttribute("href") ?? "";
+      if (/^https?:/i.test(href)) {
+        postMessage({ type: "openUrl", url: href });
+      }
+      return;
+    }
+    if (e.target === el) {
+      hideChangelogDialog();
+    }
+  });
+
+  document.body.appendChild(el);
+  return el;
+}
+
+function openChangelogDialog(options?: { hideCheck?: boolean }): void {
+  if (!changelogDialog) {
+    changelogDialog = buildChangelogDialog();
+  }
+  changelogDialog.dataset.ocuClUrl = "";
+  changelogVersion = "";
+  const title = changelogDialog.querySelector<HTMLElement>("#ocu-cl-title");
+  const body = changelogDialog.querySelector<HTMLElement>("#ocu-cl-body");
+  // Nothing copyable/sendable until the payload lands; reset the footer check.
+  changelogDialog
+    .querySelectorAll(".ocu-cl-copy, .ocu-cl-send")
+    .forEach((btn) => btn.classList.add("hidden"));
+  setChangelogSendEnabled(!changelogRestartPending);
+  // Inside the update flow (method-popover entry) a pending update is
+  // already known, so the footer's check action stays hidden.
+  changelogDialog
+    .querySelector(".ocu-cl-foot")
+    ?.classList.toggle("hidden", options?.hideCheck === true);
+  setChangelogCheckUi("idle");
+  if (title) {
+    title.textContent = t("changelogLabel", "Changelog");
+  }
+  if (body) {
+    body.innerHTML =
+      '<p class="ocu-cl-msg">' +
+      escapeHtml(t("changelogLoading", "Fetching changelog…")) +
+      "</p>";
+  }
+  changelogDialog.classList.remove("hidden");
+  changelogDialog
+    .querySelector<HTMLButtonElement>('[data-ocu-cl="close"]')
+    ?.focus();
+}
+
+function hideChangelogDialog(): void {
+  changelogDialog?.classList.add("hidden");
+}
+
+/** Title + body as plain text, shared by the copy and send actions. */
+function changelogPlainText(dialog: HTMLElement): string {
+  const title = dialog.querySelector<HTMLElement>("#ocu-cl-title");
+  const body = dialog.querySelector<
+    HTMLElement & { innerText?: string }
+  >("#ocu-cl-body");
+  // innerText keeps the rendered line breaks; textContent would mash
+  // block elements into one run-on line.
+  const bodyText = body?.innerText ?? body?.textContent ?? "";
+  return (
+    (title?.textContent ?? "") +
+    "\n\n" +
+    bodyText
+  ).trim();
+}
+
+/** Brief "Sent" feedback on the send button label. */
+function flashSendLabel(button: HTMLElement): void {
+  const label = button.querySelector<HTMLElement>(".ocu-copy-label");
+  if (!label) {
+    return;
+  }
+  label.textContent = t("changelogSentLabel", "Sent");
+  setTimeout(() => {
+    label.textContent = t("changelogSend", "Send to OpenCode");
+  }, 1600);
+}
+
+/** Footer state for the dialog's own check-for-updates action. */
+function setChangelogCheckUi(
+  kind: "idle" | "checking" | "upToDate" | "failed",
+): void {  const dialog = changelogDialog;
+  if (!dialog) {
+    return;
+  }
+  const statusEl = dialog.querySelector<HTMLElement>("#ocu-cl-status");
+  const checkBtn = dialog.querySelector<HTMLButtonElement>(
+    '[data-ocu-cl="check"]',
+  );
+  if (statusEl) {
+    statusEl.textContent =
+      kind === "checking"
+        ? t("checkingUpdates", "Checking for updates…")
+        : kind === "upToDate"
+          ? t("changelogUpToDate", "Already on the latest version.")
+          : kind === "failed"
+            ? t("changelogCheckFailed", "Check failed. Try again later.")
+            : "";
+  }
+  if (checkBtn) {
+    checkBtn.disabled = kind === "checking";
+  }
+}
+
+/** Reflects session readiness on the dialog's send action. */
+function setChangelogSendEnabled(enabled: boolean): void {
+  const sendBtn = changelogDialog?.querySelector<HTMLButtonElement>(
+    '[data-ocu-cl="send"]',
+  );
+  if (!sendBtn) {
+    return;
+  }
+  sendBtn.disabled = !enabled;
+  sendBtn.title = enabled
+    ? ""
+    : t("changelogRestarting", "Session is restarting…");
+}
+
+/**
+ * Sending needs a live session, so the dialog's send action waits out
+ * the post-update restart and re-arms once the new session is up.
+ */
+function markChangelogRestartPending(): void {
+  changelogRestartPending = true;
+  setChangelogSendEnabled(false);
+  // Safety valve: a restart that never completes must not leave the
+  // send action disabled forever.
+  if (changelogRestartTimer !== null) {
+    clearTimeout(changelogRestartTimer);
+  }
+  changelogRestartTimer = setTimeout(() => {
+    changelogRestartTimer = null;
+    changelogRestartPending = false;
+    setChangelogSendEnabled(true);
+  }, 60_000);
+}
+
+/** Session lifecycle hook: the restarted session accepts sends again. */
+export function notifyOpenCodeSessionStarted(): void {
+  if (changelogRestartTimer !== null) {
+    clearTimeout(changelogRestartTimer);
+    changelogRestartTimer = null;
+  }
+  if (!changelogRestartPending) {
+    return;
+  }
+  changelogRestartPending = false;
+  setChangelogSendEnabled(true);
+}
+
 // ── Clipboard ──
 
 function copyText(text: string, button: HTMLElement): void {
@@ -1011,12 +1356,11 @@ function bindEvents(): void {
       hideCardFull();
       postMessage({ type: "dismissOpenCodeUpdate" });
     }
-    // failed/idle/success: the popover only opens from the available and
-    // installable states, so any other visible pill doubles as the manual
-    // check entry.
+    // failed/idle/success: the pill opens the current version's notes;
+    // the check-for-updates action lives inside the changelog dialog.
     closePopover(false);
-    showCheckingCard();
-    postMessage({ type: "checkOpenCodeUpdates" });
+    openChangelogDialog();
+    postMessage({ type: "requestOpenCodeChangelog" });
   });
 
   card?.addEventListener("click", (e) => {
@@ -1035,6 +1379,18 @@ function bindEvents(): void {
       } else if (action === "restart") {
         hideCardFull();
         postMessage({ type: "restartAfterUpdate" });
+      } else if (action === "restart-changelog") {
+        // One click, both jobs: ask for the notes first (the version
+        // fields are still set), then restart behind the open dialog.
+        hideCardFull();
+        openChangelogDialog({ hideCheck: true });
+        markChangelogRestartPending();
+        postMessage({ type: "requestOpenCodeChangelog" });
+        postMessage({ type: "restartAfterUpdate" });
+      } else if (action === "changelog") {
+        hideCardFull();
+        openChangelogDialog({ hideCheck: true });
+        postMessage({ type: "requestOpenCodeChangelog" });
       } else if (action === "later") {
         hideCardFull();
         postMessage({ type: "dismissOpenCodeUpdate" });
@@ -1088,6 +1444,12 @@ function bindEvents(): void {
     closePopover(true);
   });
 
+  popover?.querySelector("#ocu-pop-changelog")?.addEventListener("click", () => {
+    closePopover(false);
+    openChangelogDialog({ hideCheck: true });
+    postMessage({ type: "requestOpenCodeChangelog" });
+  });
+
   drawer?.querySelector("#ocu-drawer-close")?.addEventListener("click", () => {
     closeDrawer(true);
   });
@@ -1112,6 +1474,15 @@ function bindEvents(): void {
         answerInstallPrompt("notNow");
       } else if (e.key === "Tab") {
         trapCycle(installPrompt, e);
+      }
+      return;
+    }
+    if (changelogDialog && !changelogDialog.classList.contains("hidden")) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        hideChangelogDialog();
+      } else if (e.key === "Tab") {
+        trapCycle(changelogDialog, e);
       }
       return;
     }

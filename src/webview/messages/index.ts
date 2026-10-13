@@ -51,6 +51,9 @@ export interface MessageHandlerCallbacks {
   onOpenCodeUpdateStatus?: (
     message: Extract<HostMessage, { type: "openCodeUpdateStatus" }>,
   ) => void;
+  onOpenCodeChangelog?: (
+    message: Extract<HostMessage, { type: "openCodeChangelog" }>,
+  ) => void;
 }
 
 export interface MessageHandler {
@@ -206,6 +209,10 @@ export function createMessageHandler(
 
         case "openCodeUpdateStatus":
           callbacks.onOpenCodeUpdateStatus?.(message);
+          break;
+
+        case "openCodeChangelog":
+          callbacks.onOpenCodeChangelog?.(message);
           break;
       }
     },

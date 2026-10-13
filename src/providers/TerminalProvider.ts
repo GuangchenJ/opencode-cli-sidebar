@@ -7,6 +7,10 @@ import { OpenCodeApiClient } from "../services/OpenCodeApiClient";
 import { PortManager } from "../services/PortManager";
 import { ContextSharingService } from "../services/ContextSharingService";
 import { OutputChannelService } from "../services/OutputChannelService";
+import {
+  changelogPageUrl,
+  OpenCodeChangelogService,
+} from "../services/OpenCodeChangelogService";
 import { DataThrottleService } from "../services/DataThrottleService";
 import { InstanceId, InstanceStore } from "../services/InstanceStore";
 import {
@@ -61,6 +65,7 @@ export class TerminalProvider
   private pendingQueueablePostChecks = 0;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly opencodeUpdateService?: OpenCodeUpdateService;
+  private readonly changelogService?: OpenCodeChangelogService;
   /** Current self-update UI snapshot; pushed in full on every change. */
   private updateUi: OpenCodeUpdateUiStatus = { state: "idle", step: "" };
   /** Completed update steps for the progress card and log drawer. */
@@ -80,10 +85,12 @@ export class TerminalProvider
     private readonly nativeTerminalManager?: NativeTerminalManager,
     private readonly ideContextServer?: IdeContextServer,
     opencodeUpdateService?: OpenCodeUpdateService,
+    changelogService?: OpenCodeChangelogService,
   ) {
     this.contextSharingService = new ContextSharingService();
     this.opencodeOperator = new OpenCodeToolOperator();
     this.opencodeUpdateService = opencodeUpdateService;
+    this.changelogService = changelogService;
     this.dataThrottleService = new DataThrottleService((batch) => {
       for (const item of batch) {
         this.postWebviewMessageNow({
@@ -157,6 +164,9 @@ export class TerminalProvider
       retryCliProbe: () => this.retryCliProbe(),
       answerCliInstallPrompt: (action) =>
         this.answerCliInstallPrompt(action),
+      requestOpenCodeChangelog: () => this.requestOpenCodeChangelog(),
+      sendChangelogToOpenCode: (text) =>
+        this.sendPrompt(text, { asPaste: true }),
     };
 
     this.messageRouter = new MessageRouter(
@@ -701,6 +711,36 @@ export class TerminalProvider
     }
   }
 
+  /** Resolves the target version's release notes for the webview dialog. */
+  public async requestOpenCodeChangelog(): Promise<void> {
+    const version =
+      this.updateUi.targetVersion ??
+      this.updateUi.latestVersion ??
+      this.updateUi.installedVersion ??
+      this.updateUi.currentVersion;
+    const fallbackUrl = changelogPageUrl(version);
+    if (!version || !this.changelogService) {
+      this.postWebviewMessage({
+        type: "openCodeChangelog",
+        payload: { version: version ?? "", ok: false, fallbackUrl },
+      });
+      return;
+    }
+    const result = await this.changelogService.fetchChangelog(version);
+    this.postWebviewMessage({
+      type: "openCodeChangelog",
+      payload: result.ok
+        ? {
+            version,
+            ok: true,
+            date: result.date,
+            html: result.html,
+            fallbackUrl,
+          }
+        : { version, ok: false, fallbackUrl },
+    });
+  }
+
   public abandonOpenCodeUpdate(): void {
     this.opencodeUpdateService?.abandonUpdate();
   }
@@ -824,6 +864,7 @@ export class TerminalProvider
         };
         this.postUpdateUiStatus({
           ...this.currentUpdateUiSnapshot(),
+          checkOutcome: "upToDate",
           notice:
             event.manual === true
               ? l10n.t(
@@ -1123,7 +1164,10 @@ export class TerminalProvider
     await this.sessionRuntime.switchToInstance(instanceId, options);
   }
 
-  public async sendPrompt(prompt: string): Promise<void> {
+  public async sendPrompt(
+    prompt: string,
+    options?: { asPaste?: boolean },
+  ): Promise<void> {
     const apiClient = this.sessionRuntime.getApiClient();
     if (apiClient && this.sessionRuntime.isHttpAvailable()) {
       try {
@@ -1136,7 +1180,14 @@ export class TerminalProvider
       }
     }
 
-    this.terminalManager.writeToTerminal(this.activeTerminalId, prompt);
+    // Large payloads go out as a bracketed paste: the TUI inserts the
+    // whole block in one event instead of processing it keystroke by
+    // keystroke, which reflows its composer per character.
+    const payload =
+      options?.asPaste === true
+        ? `\x1b[200~${prompt}\x1b[201~`
+        : prompt;
+    this.terminalManager.writeToTerminal(this.activeTerminalId, payload);
   }
 
   private handleMessage(message: unknown): void {

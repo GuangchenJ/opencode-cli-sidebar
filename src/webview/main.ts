@@ -37,7 +37,9 @@ import {
 } from "./opencode-cli-settings";
 import {
   applyOpenCodeUpdateStatus,
+  applyOpenCodeChangelog,
   initOpenCodeUpdateUi,
+  notifyOpenCodeSessionStarted,
 } from "./update";
 
 const focusIndicator = createFocusIndicator();
@@ -106,10 +108,15 @@ const callbacks: MessageHandlerCallbacks = {
 
   onOpenCodeSessionStarted() {
     clearOpenCodeCliPluginRestartPending();
+    notifyOpenCodeSessionStarted();
   },
 
   onOpenCodeUpdateStatus(message) {
     applyOpenCodeUpdateStatus(message.status);
+  },
+
+  onOpenCodeChangelog(message) {
+    applyOpenCodeChangelog(message.payload);
   },
 
   onFocusIndicatorConfig(mode, width) {

@@ -8,9 +8,12 @@ vi.mock("../shared/vscode-api", () => ({
 
 import { postMessage } from "../shared/vscode-api";
 import {
+  applyOpenCodeChangelog,
   applyOpenCodeUpdateStatus,
   initOpenCodeUpdateUi,
   isInstallPromptVisible,
+  notifyOpenCodeSessionStarted,
+  notifyOpenCodeUpdateCheckRequested,
 } from "./index";
 
 /**
@@ -90,8 +93,9 @@ describe("OpenCode update UI (webview)", () => {
     expect(pill().disabled).toBe(true);
   });
 
-  it("re-checks from the failed pill instead of opening the popover", () => {
+  it("re-enters the update flow from the failed pill", () => {
     vi.mocked(postMessage).mockClear();
+    resetStatus();
     applyOpenCodeUpdateStatus({
       state: "failed",
       step: "",
@@ -100,19 +104,23 @@ describe("OpenCode update UI (webview)", () => {
     });
 
     expect(pill().getAttribute("title")).toBe(
-      "Last install failed. Click to check again",
+      "Update did not finish. Click to try again",
     );
 
     pill().click();
 
-    expect(postMessage).toHaveBeenCalledWith({
-      type: "checkOpenCodeUpdates",
-    });
-    // The local checking card replaced the failure card.
-    expect(card().textContent).toContain("Checking for updates");
+    // The pill keeps the entry look after a failed update, so clicking
+    // re-opens the method popover instead of the changelog.
+    expect(popover().classList.contains("hidden")).toBe(false);
+    // The changelog stays reachable inside the retry popover.
+    expect(
+      popover().querySelector("#ocu-pop-changelog")?.classList.contains("hidden"),
+    ).toBe(false);
+
+    resetStatus();
   });
 
-  it("checks for updates from the version pill in the idle state", () => {
+  it("opens the current version's changelog from the pill in the idle state", () => {
     vi.mocked(postMessage).mockClear();
     resetStatus();
     applyOpenCodeUpdateStatus({
@@ -124,21 +132,35 @@ describe("OpenCode update UI (webview)", () => {
     expect(pill().classList.contains("hidden")).toBe(false);
     expect(pill().disabled).toBe(false);
     expect(pill().getAttribute("title")).toBe(
-      "Click to check for updates",
+      "View the current version's changelog",
     );
     expect(pill().getAttribute("aria-label")).toBe(
-      "Click to check for updates",
+      "View the current version's changelog",
     );
 
     pill().click();
 
     expect(postMessage).toHaveBeenCalledWith({
-      type: "checkOpenCodeUpdates",
+      type: "requestOpenCodeChangelog",
     });
-    expect(card().textContent).toContain("Checking for updates");
+    expect(
+      document.getElementById("ocu-changelog")?.classList.contains("hidden"),
+    ).toBe(false);
+    // Standalone entry: the footer check action is available.
+    expect(
+      document
+        .getElementById("ocu-changelog")
+        ?.querySelector(".ocu-cl-foot")
+        ?.classList.contains("hidden"),
+    ).toBe(false);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    resetStatus();
   });
 
-  it("does not re-post the manual check while the checking card is showing", () => {
+  it("ignores pill clicks while the checking card is showing", () => {
     vi.mocked(postMessage).mockClear();
     resetStatus();
     applyOpenCodeUpdateStatus({
@@ -146,17 +168,19 @@ describe("OpenCode update UI (webview)", () => {
       step: "",
       installedVersion: "2.0.7",
     });
+    notifyOpenCodeUpdateCheckRequested();
 
     pill().click();
-    pill().click();
 
-    expect(postMessage).toHaveBeenCalledTimes(1);
-    expect(postMessage).toHaveBeenCalledWith({
-      type: "checkOpenCodeUpdates",
-    });
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(
+      document.getElementById("ocu-changelog")?.classList.contains("hidden"),
+    ).toBe(true);
+
+    resetStatus();
   });
 
-  it("dismisses the success card before re-checking from the pill", () => {
+  it("dismisses the success card and opens the changelog from the pill", () => {
     vi.mocked(postMessage).mockClear();
     resetStatus();
     applyOpenCodeUpdateStatus({
@@ -172,8 +196,19 @@ describe("OpenCode update UI (webview)", () => {
     const types = vi.mocked(postMessage).mock.calls.map(
       (call) => call[0].type,
     );
-    expect(types).toEqual(["dismissOpenCodeUpdate", "checkOpenCodeUpdates"]);
-    expect(card().textContent).toContain("Checking for updates");
+    expect(types).toEqual([
+      "dismissOpenCodeUpdate",
+      "requestOpenCodeChangelog",
+    ]);
+    expect(card().classList.contains("hidden")).toBe(true);
+    expect(
+      document.getElementById("ocu-changelog")?.classList.contains("hidden"),
+    ).toBe(false);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    resetStatus();
   });
 
   it("renders a generic failure title when no version was verified", () => {
@@ -220,7 +255,9 @@ describe("OpenCode update UI (webview)", () => {
 
     const line = document.getElementById("ocu-progress");
     expect(line?.classList.contains("hidden")).toBe(false);
-    expect(line?.textContent).toContain("67% · Run install");
+    expect(line?.textContent).toContain("Downloading and installing 67%");
+    // The spinner sits between the version pill and the step text.
+    expect(line?.querySelector(".ocu-progress-spin")).not.toBeNull();
     expect(line?.querySelector('[data-ocu-act="abandon"]')).toBeNull();
     // No progress card anymore: updating renders no card.
     expect(card().classList.contains("hidden")).toBe(true);
@@ -481,6 +518,387 @@ describe("OpenCode update UI (webview)", () => {
     expect(popover().querySelector(".ocu-tag-det")).toBeNull();
     expect(popover().querySelector("#ocu-popover-title")?.textContent).toBe(
       "Install OpenCode CLI",
+    );
+
+    resetStatus();
+  });
+
+  // ── Changelog dialog ──
+
+  it("shows the changelog entry only in the update popover", () => {
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "installable",
+      step: "",
+      methods: ["npm"],
+      defaultMethod: "npm",
+    });
+    pill().click();
+    expect(
+      popover().querySelector("#ocu-pop-changelog")?.classList.contains("hidden"),
+    ).toBe(true);
+    resetStatus();
+
+    applyOpenCodeUpdateStatus({
+      state: "available",
+      step: "",
+      latestVersion: "2.1.0",
+      openMethodPicker: true,
+    });
+    expect(
+      popover().querySelector("#ocu-pop-changelog")?.classList.contains("hidden"),
+    ).toBe(false);
+
+    resetStatus();
+  });
+
+  it("opens the changelog dialog from the popover and renders the payload", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "available",
+      step: "",
+      latestVersion: "2.1.0",
+      openMethodPicker: true,
+    });
+
+    popover().querySelector<HTMLButtonElement>("#ocu-pop-changelog")?.click();
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "requestOpenCodeChangelog",
+    });
+    const dialog = document.getElementById("ocu-changelog");
+    expect(dialog?.classList.contains("hidden")).toBe(false);
+    expect(dialog?.textContent).toContain("Fetching changelog");
+    // Update-flow entry: the footer check action stays hidden.
+    expect(
+      dialog?.querySelector(".ocu-cl-foot")?.classList.contains("hidden"),
+    ).toBe(true);
+
+    applyOpenCodeChangelog({
+      version: "2.1.0",
+      ok: true,
+      date: "2026-10-13",
+      html:
+        '<section class="highlights"><ul><li><p class="title">Something new</p>' +
+        '<p>Details with <a href="https://github.com/anomalyco/opencode/pull/1">#1</a></p></li></ul></section>',
+      fallbackUrl: "https://opencode.ai/changelog#v2-1-0",
+    });
+
+    expect(dialog?.querySelector("#ocu-cl-title")?.textContent).toBe(
+      "OpenCode 2.1.0",
+    );
+    expect(dialog?.textContent).toContain("Something new");
+    expect(dialog?.textContent).toContain("2026-10-13");
+
+    dialog.querySelector<HTMLAnchorElement>("a[href]")?.click();
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "openUrl",
+      url: "https://github.com/anomalyco/opencode/pull/1",
+    });
+
+    resetStatus();
+  });
+
+  it("falls back to the browser link when the changelog is unavailable", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "available",
+      step: "",
+      latestVersion: "2.1.0",
+      openMethodPicker: true,
+    });
+
+    popover().querySelector<HTMLButtonElement>("#ocu-pop-changelog")?.click();
+    applyOpenCodeChangelog({
+      version: "2.1.0",
+      ok: false,
+      fallbackUrl: "https://opencode.ai/changelog#v2-1-0",
+    });
+
+    const dialog = document.getElementById("ocu-changelog");
+    expect(dialog?.textContent).toContain("unavailable for this version");
+
+    dialog.querySelector<HTMLButtonElement>('[data-ocu-cl="open"]')?.click();
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "openUrl",
+      url: "https://opencode.ai/changelog#v2-1-0",
+    });
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(dialog?.classList.contains("hidden")).toBe(true);
+
+    resetStatus();
+  });
+
+  it("restarts and shows the changelog from the success card in one click", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "success",
+      step: "",
+      installedVersion: "2.1.0",
+      targetVersion: "2.1.0",
+    });
+
+    expect(
+      card().querySelector('[data-ocu-act="restart-changelog"]'),
+    ).not.toBeNull();
+
+    card()
+      .querySelector<HTMLButtonElement>('[data-ocu-act="restart-changelog"]')
+      ?.click();
+
+    // The changelog request leaves before the restart so the version
+    // fields are still set when the host resolves the notes.
+    const types = vi.mocked(postMessage).mock.calls.map(
+      (call) => call[0].type,
+    );
+    expect(types).toEqual(["requestOpenCodeChangelog", "restartAfterUpdate"]);
+    expect(card().classList.contains("hidden")).toBe(true);
+    expect(
+      document.getElementById("ocu-changelog")?.classList.contains("hidden"),
+    ).toBe(false);
+    // The fresh version just landed: no check action in the footer.
+    expect(
+      document
+        .getElementById("ocu-changelog")
+        ?.querySelector(".ocu-cl-foot")
+        ?.classList.contains("hidden"),
+    ).toBe(true);
+
+    applyOpenCodeChangelog({
+      version: "2.1.0",
+      ok: true,
+      date: "2026-10-13",
+      html:
+        '<section class="highlights"><ul><li><p class="title">New</p></li></ul></section>',
+      fallbackUrl: "https://opencode.ai/changelog#v2-1-0",
+    });
+
+    // Sending waits out the restart running behind the dialog.
+    const sendBtn = document
+      .getElementById("ocu-changelog")
+      ?.querySelector<HTMLButtonElement>('[data-ocu-cl="send"]');
+    expect(sendBtn?.disabled).toBe(true);
+
+    notifyOpenCodeSessionStarted();
+
+    expect(sendBtn?.disabled).toBe(false);
+
+    resetStatus();
+  });
+
+  it("offers a changelog entry on the auto-started success card", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "success",
+      step: "",
+      installedVersion: "2.1.0",
+      sessionAutoStarted: true,
+    });
+
+    card()
+      .querySelector<HTMLButtonElement>('[data-ocu-act="changelog"]')
+      ?.click();
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "requestOpenCodeChangelog",
+    });
+    const types = vi.mocked(postMessage).mock.calls.map(
+      (call) => call[0].type,
+    );
+    expect(types).not.toContain("restartAfterUpdate");
+    expect(
+      document.getElementById("ocu-changelog")?.classList.contains("hidden"),
+    ).toBe(false);
+    // Same as the restart variant: the fresh version just landed.
+    expect(
+      document
+        .getElementById("ocu-changelog")
+        ?.querySelector(".ocu-cl-foot")
+        ?.classList.contains("hidden"),
+    ).toBe(true);
+
+    resetStatus();
+  });
+
+  it("copies the changelog text from the dialog header", async () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    try {
+      applyOpenCodeUpdateStatus({
+        state: "available",
+        step: "",
+        latestVersion: "2.1.0",
+        openMethodPicker: true,
+      });
+      popover().querySelector<HTMLButtonElement>("#ocu-pop-changelog")?.click();
+      applyOpenCodeChangelog({
+        version: "2.1.0",
+        ok: true,
+        date: "2026-10-13",
+        html:
+          '<section class="highlights"><ul><li><p class="title">Something new</p></li></ul></section>',
+        fallbackUrl: "https://opencode.ai/changelog",
+      });
+
+      const dialog = document.getElementById("ocu-changelog");
+      const copyBtn = dialog?.querySelector<HTMLButtonElement>(
+        '[data-ocu-cl="copy"]',
+      );
+      expect(copyBtn?.classList.contains("hidden")).toBe(false);
+
+      copyBtn?.click();
+
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("OpenCode 2.1.0"),
+      );
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("Something new"),
+      );
+      // The label flips inside the clipboard promise's microtask.
+      await vi.waitFor(() => {
+        expect(copyBtn?.querySelector(".ocu-copy-label")?.textContent).toBe(
+          "Copied",
+        );
+      });
+    } finally {
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
+
+    resetStatus();
+  });
+
+  it("checks for new versions from inside the changelog dialog", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "idle",
+      step: "",
+      installedVersion: "2.0.7",
+    });
+    pill().click();
+    vi.mocked(postMessage).mockClear();
+
+    const dialog = document.getElementById("ocu-changelog");
+    dialog
+      .querySelector<HTMLButtonElement>('[data-ocu-cl="check"]')
+      ?.click();
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "checkOpenCodeUpdates",
+    });
+    expect(dialog?.querySelector("#ocu-cl-status")?.textContent).toContain(
+      "Checking for updates",
+    );
+
+    // A found update hands the flow over to the method popover.
+    applyOpenCodeUpdateStatus({
+      state: "available",
+      step: "",
+      latestVersion: "2.1.0",
+      openMethodPicker: true,
+    });
+
+    expect(dialog?.classList.contains("hidden")).toBe(true);
+    expect(popover().classList.contains("hidden")).toBe(false);
+
+    resetStatus();
+  });
+
+  it("reports the up-to-date result inside the changelog dialog", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "idle",
+      step: "",
+      installedVersion: "2.0.7",
+    });
+    pill().click();
+
+    document
+      .getElementById("ocu-changelog")
+      ?.querySelector<HTMLButtonElement>('[data-ocu-cl="check"]')
+      ?.click();
+
+    applyOpenCodeUpdateStatus({
+      state: "idle",
+      step: "",
+      installedVersion: "2.0.7",
+      latestVersion: "2.0.7",
+      checkOutcome: "upToDate",
+    });
+
+    const dialog = document.getElementById("ocu-changelog");
+    expect(dialog?.classList.contains("hidden")).toBe(false);
+    expect(dialog?.querySelector("#ocu-cl-status")?.textContent).toContain(
+      "Already on the latest version.",
+    );
+    expect(
+      dialog?.querySelector<HTMLButtonElement>('[data-ocu-cl="check"]')
+        ?.disabled,
+    ).toBe(false);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    resetStatus();
+  });
+
+  it("sends the changelog to the OpenCode session from the dialog", () => {
+    vi.mocked(postMessage).mockClear();
+    resetStatus();
+    applyOpenCodeUpdateStatus({
+      state: "available",
+      step: "",
+      latestVersion: "2.1.0",
+      openMethodPicker: true,
+    });
+    popover().querySelector<HTMLButtonElement>("#ocu-pop-changelog")?.click();
+    applyOpenCodeChangelog({
+      version: "2.1.0",
+      ok: true,
+      date: "2026-10-13",
+      html:
+        '<section class="highlights"><ul><li><p class="title">Something new</p></li></ul></section>',
+      fallbackUrl: "https://opencode.ai/changelog#v2-1-0",
+    });
+
+    const dialog = document.getElementById("ocu-changelog");
+    const sendBtn = dialog?.querySelector<HTMLButtonElement>(
+      '[data-ocu-cl="send"]',
+    );
+    expect(sendBtn?.classList.contains("hidden")).toBe(false);
+
+    sendBtn?.click();
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "sendChangelogToOpenCode",
+      text: expect.stringContaining("OpenCode 2.1.0"),
+    });
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "sendChangelogToOpenCode",
+      text: expect.stringContaining("Something new"),
+    });
+    // The send payload carries the summarization prompt with the version.
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "sendChangelogToOpenCode",
+      text: expect.stringContaining("\n---\nThe above is the OpenCode 2.1.0"),
+    });
+    // The dialog closes so the user can watch the session.
+    expect(dialog?.classList.contains("hidden")).toBe(true);
+    expect(sendBtn?.querySelector(".ocu-copy-label")?.textContent).toBe(
+      "Sent",
     );
 
     resetStatus();
