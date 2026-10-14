@@ -13,8 +13,8 @@ export function renderOpenCodeCliSettingsModal(): string {
             type="button"
             class="occs-sub-link"
             id="occs-open-cli-json"
-            title="${l10n.t("Open cli.json")}"
-            aria-label="${l10n.t("Open cli.json")}"
+            title="${l10n.t("Edit cli.json")}"
+            aria-label="${l10n.t("Edit cli.json")}"
           >
             <span class="occs-sub">${l10n.t("TUI Settings")}</span>
             <span class="occs-path hidden" id="occs-path"></span>
@@ -49,6 +49,7 @@ export function renderOpenCodeCliSettingsModal(): string {
 /** Localized strings for browser-side settings module. */
 export const openCodeCliSettingsL10nStrings: Record<string, string> = {
   openKeymap: l10n.t("Open keybindings"),
+  editCliJson: l10n.t("Edit cli.json"),
   defaultLabel: l10n.t("Default: {0}"),
   saveFailed: l10n.t("Failed to save. Your config file was not changed."),
   loadFailed: l10n.t("Failed to load OpenCode CLI settings."),

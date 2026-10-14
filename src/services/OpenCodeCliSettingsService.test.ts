@@ -64,6 +64,37 @@ describe("OpenCodeCliSettingsService", () => {
     expect(payload.overrides["cursor.style"]).toBeUndefined();
   });
 
+  it("excludes readonly entries from values and overrides", async () => {
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        attention: { sounds: { "agent-done": "/tmp/a.wav" } },
+        experimental: { jsroutes: true },
+      }),
+      "utf8",
+    );
+    const payload = await service.load();
+    expect(payload.values["attention.sounds"]).toBeUndefined();
+    expect(payload.values.experimental).toBeUndefined();
+    expect(payload.overrides["attention.sounds"]).toBeUndefined();
+    expect(payload.overrides.experimental).toBeUndefined();
+  });
+
+  it("rejects save and reset for readonly entries without changing the file", async () => {
+    const original = JSON.stringify({
+      attention: { sounds: { "agent-done": "/tmp/a.wav" } },
+      animations: true,
+    });
+    fs.writeFileSync(configPath, original, "utf8");
+    await expect(
+      service.save("attention.sounds", { "agent-done": "/tmp/b.wav" }),
+    ).rejects.toThrow(/Readonly/);
+    await expect(service.reset("attention.sounds")).rejects.toThrow(
+      /Readonly/,
+    );
+    expect(fs.readFileSync(configPath, "utf8")).toBe(original);
+  });
+
   it("includes the current unknown theme in options", async () => {
     fs.writeFileSync(
       configPath,

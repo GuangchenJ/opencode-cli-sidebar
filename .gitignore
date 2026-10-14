@@ -9,7 +9,8 @@ build/
 
 
 # opencode
-.opencode/
+.opencode/*
+!.opencode/commands/
 .sisyphus/
 
 # claude

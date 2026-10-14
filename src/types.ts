@@ -120,7 +120,8 @@ export type OpenCodeCliSettingType =
   | "enum"
   | "string"
   | "number"
-  | "range";
+  | "range"
+  | "readonly";
 
 export type OpenCodeCliSettingsGroupId =
   | "appearance"

@@ -341,13 +341,21 @@ function controlHtml(item: OpenCodeCliSettingItem): string {
     return `<input class="occs-number" type="number" data-oc-cli-set="${escapeHtml(item.id)}" value="${num}"${item.min !== undefined ? ` min="${item.min}"` : ""}${item.step !== undefined ? ` step="${item.step}"` : ""} />`;
   }
 
+  if (item.type === "readonly") {
+    // Advanced-config pointer: no editable control, only a jump into cli.json.
+    // No data-oc-cli-set, so change/input/focusout delegation skips this button.
+    return `<button type="button" class="occs-btn occs-readonly-btn" data-oc-cli-open="cliJson">${escapeHtml(t("editCliJson", "Edit cli.json"))}</button>`;
+  }
+
   const text = val === undefined || val === null ? "" : String(val);
   return `<input class="occs-input" type="text" data-oc-cli-set="${escapeHtml(item.id)}" value="${escapeHtml(text)}" />`;
 }
 
 function rowHtml(item: OpenCodeCliSettingItem): string {
-  const mod = isOverride(item.id);
-  return `<div class="occs-row${mod ? " is-modified" : ""}" data-oc-cli-row="${escapeHtml(item.id)}">
+  const readonly = item.type === "readonly";
+  // Readonly entries have no scalar default and are never override-tracked.
+  const mod = !readonly && isOverride(item.id);
+  return `<div class="occs-row${mod ? " is-modified" : ""}${readonly ? " is-readonly" : ""}" data-oc-cli-row="${escapeHtml(item.id)}">
     <div class="occs-row-info">
       <div class="occs-title-line">
         <span class="occs-row-title">${escapeHtml(item.title)}</span>
@@ -1021,6 +1029,17 @@ export function initOpenCodeCliSettingsUi(): void {
     if (jump) {
       closeOpenCodeCliSettingsModal();
       openKeymapModal();
+      return;
+    }
+
+    const openFileBtn = (e.target as HTMLElement).closest("[data-oc-cli-open]");
+    if (openFileBtn) {
+      // Readonly rows jump into the raw config file, same as the header link.
+      e.preventDefault();
+      const target = (openFileBtn as HTMLElement).dataset.ocCliOpen;
+      if (target === "agentsMd" || target === "opencodeJson" || target === "cliJson") {
+        postMessage({ type: "openOpenCodeGlobalFile", target });
+      }
       return;
     }
 

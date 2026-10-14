@@ -489,6 +489,14 @@ export const OPENCODE_CLI_SETTINGS_CATALOG: readonly OpenCodeCliSettingItem[] = 
     type: "string",
     def: "",
   },
+  {
+    id: "attention.sounds",
+    group: "attention",
+    title: l10n.t("Sound overrides"),
+    desc: l10n.t("Map attention events to sound file paths in cli.json"),
+    type: "readonly",
+    def: undefined,
+  },
 
   // mini
   {
@@ -624,6 +632,14 @@ export const OPENCODE_CLI_SETTINGS_CATALOG: readonly OpenCodeCliSettingItem[] = 
       { value: "on", label: l10n.t("On") },
       { value: "verbose", label: l10n.t("Verbose") },
     ],
+  },
+  {
+    id: "experimental",
+    group: "debug",
+    title: l10n.t("Experimental features"),
+    desc: l10n.t("Enable unstable features with boolean flags in cli.json"),
+    type: "readonly",
+    def: undefined,
   },
 ];
 

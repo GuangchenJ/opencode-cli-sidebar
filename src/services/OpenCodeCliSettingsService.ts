@@ -4,6 +4,7 @@ import * as path from "node:path";
 import {
   OPENCODE_BUILTIN_THEMES,
   OPENCODE_CLI_SETTINGS_CATALOG,
+  findOpenCodeCliSetting,
   type OpenCodeCliSettingOption,
 } from "./aiTools/openCodeCliSettingsCatalog";
 import {
@@ -49,6 +50,9 @@ export class OpenCodeCliSettingsService {
     const overrides: Record<string, boolean> = {};
 
     for (const item of OPENCODE_CLI_SETTINGS_CATALOG) {
+      if (item.type === "readonly") {
+        continue;
+      }
       const has = hasPath(doc, item.id);
       const raw = has ? getPath(doc, item.id) : undefined;
       values[item.id] = has && raw !== undefined ? raw : item.def;
@@ -76,6 +80,7 @@ export class OpenCodeCliSettingsService {
 
   /** Write one dotted path. Value equal to default deletes the key. */
   public async save(id: string, value: unknown): Promise<void> {
+    this.assertNotReadonly(id);
     await this.mutateDoc((doc) => {
       setPath(doc, id, value);
     });
@@ -83,9 +88,17 @@ export class OpenCodeCliSettingsService {
 
   /** Delete one dotted path override. */
   public async reset(id: string): Promise<void> {
+    this.assertNotReadonly(id);
     await this.mutateDoc((doc) => {
       deletePath(doc, id);
     });
+  }
+
+  /** Readonly display entries are edited manually in cli.json only. */
+  private assertNotReadonly(id: string): void {
+    if (findOpenCodeCliSetting(id)?.type === "readonly") {
+      throw new Error(`Readonly setting cannot be modified here: ${id}`);
+    }
   }
 
   /** Append one plugin entry (npm package spec) to cli.json `plugins`. */
