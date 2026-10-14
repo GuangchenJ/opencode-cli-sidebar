@@ -1,9 +1,11 @@
 /**
  * OpenCode cli.json non-keybind settings catalog.
  *
- * Source of truth (researched 2026-09 from opencode.ai/v2/cli.json schema):
+ * Source of truth (verified 2026-10-14 against released opencode v2.0.28,
+ * opencode-source packages/tui/src/config/index.tsx):
  *   theme / leader / scroll / attention / diffs / terminal / prompt /
- *   session / tabs / mini / debug / experimental / animations / mouse / cursor
+ *   session / tabs / mini / debug / experimental / animations / highlights /
+ *   mouse / cursor
  */
 import { l10n } from "../../i18n";
 import type {
@@ -122,6 +124,14 @@ export const OPENCODE_CLI_SETTINGS_CATALOG: readonly OpenCodeCliSettingItem[] = 
     group: "appearance",
     title: l10n.t("Mouse capture"),
     desc: l10n.t("Enable terminal mouse capture"),
+    type: "boolean",
+    def: true,
+  },
+  {
+    id: "highlights",
+    group: "appearance",
+    title: l10n.t("Release highlights"),
+    desc: l10n.t("Show the release highlights once after OpenCode updates"),
     type: "boolean",
     def: true,
   },
@@ -509,10 +519,28 @@ export const OPENCODE_CLI_SETTINGS_CATALOG: readonly OpenCodeCliSettingItem[] = 
     options: YES_NO,
   },
   {
+    id: "mini.turn_summary",
+    group: "mini",
+    title: l10n.t("Turn summary"),
+    desc: l10n.t("Show the agent, model, and duration summary in scrollback"),
+    type: "enum",
+    def: "show",
+    options: YES_NO,
+  },
+  {
     id: "mini.footer",
     group: "mini",
     title: l10n.t("Footer status"),
     desc: l10n.t("Show activity, model, usage, and context in the footer"),
+    type: "enum",
+    def: "show",
+    options: YES_NO,
+  },
+  {
+    id: "mini.splash",
+    group: "mini",
+    title: l10n.t("Splash banners"),
+    desc: l10n.t("Show the entry and exit splash banners"),
     type: "enum",
     def: "show",
     options: YES_NO,
@@ -527,8 +555,16 @@ export const OPENCODE_CLI_SETTINGS_CATALOG: readonly OpenCodeCliSettingItem[] = 
     options: [
       { value: "block-soft-slide", label: "block-soft-slide" },
       { value: "block-soft-sweep", label: "block-soft-sweep" },
+      { value: "block-low-comet", label: "block-low-comet" },
+      { value: "block-low-duet", label: "block-low-duet" },
+      { value: "block-shuttle", label: "block-shuttle" },
+      { value: "block-bridge", label: "block-bridge" },
+      { value: "block-squeeze", label: "block-squeeze" },
       { value: "small-toggle", label: "small-toggle" },
+      { value: "square-toggle", label: "square-toggle" },
       { value: "grow-shrink", label: "grow-shrink" },
+      { value: "quadrant-orbit", label: "quadrant-orbit" },
+      { value: "crosshatch", label: "crosshatch" },
       { value: "density-wave", label: "density-wave" },
       { value: "seed", label: "seed" },
     ],
