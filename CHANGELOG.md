@@ -5,6 +5,14 @@ All notable changes to the "Opencode CLI Sidebar" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### 5.3.0
+**New Features**
+- **OpenCode**: Add readonly settings and keybind catalog sync.
+- **OpenCode**: Add a changelog viewer in the webview.
+
+**Improvements**
+- **Catalog**: Sync OpenCode catalogs with v2.0.28.
+
 #### 5.2.0
 **New Features**
 - **Update**: Show the target version in the update popover and start checking for updates immediately on activation.
