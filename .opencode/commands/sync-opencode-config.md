@@ -35,7 +35,7 @@ git -C "$env:USERPROFILE\.config\opencode\opencode-source" for-each-ref --sort=-
 
 对 keybind id 做双向集合比对,对设置键做逐键核对,分三类处理:
 
-1. 上游新增:按目录现有条目格式补齐。设置键的 title 与 desc 走 l10n.t,中文文案同步加入 l10n/bundle.l10n.zh-cn.json,键与英文字符串相同。keybind 条目 title 与 desc 用硬编码英文,不走 l10n。
+1. 上游新增:按目录现有条目格式补齐。设置键的 title 与 desc 走 l10n.t,中文文案同步加入 l10n/bundle.l10n.zh-cn.json,键与英文字符串相同。keybind 条目 title 与 desc 在目录中用硬编码英文书写,不写成 l10n.t 调用;英文原文即 l10n 键,中文文案同样必须同步加入 bundle,键与英文字符串相同,由 localizeKeymapItems 在发送 webview 前完成本地化。
 2. 上游移除:从目录删除对应条目。上游会保留少量标记 Deprecated 的条目,是否收录以 Definitions 中实际存在为准。
 3. 枚举值变化:逐值核对并按上游顺序排列,例如 mini.work_spinner。
 
@@ -58,5 +58,7 @@ npm run compile
 ```
 
 check-l10n 报告的 EXTRA 键属于存量问题,只需确认 MISSING 为 0。
+
+check-l10n 提取不到 keybind 目录的动态键 l10n.t(item.title)。另写临时脚本从 openCodeKeybindCatalog.ts 提取全部 title 与 desc 字符串,与 bundle 键集合比对,缺失必须为 0。
 
 最后汇报:基线 tag、差异分类统计、改动文件清单、各项验证结果。
