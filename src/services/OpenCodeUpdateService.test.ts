@@ -718,7 +718,11 @@ describe("OpenCodeUpdateService", () => {
       expect(result.ok).toBe(true);
       expect(
         execUpgrade.mock.calls.map(([file, args]) => [file, ...args].join(" ")),
-      ).toEqual(["opencode upgrade --method npm", "nvm reshim"]);
+      ).toEqual([
+        "opencode upgrade --method npm",
+        "nvm reshim",
+        "nvm firewall trust module opencode",
+      ]);
       expect(service.status).toBe("updateSucceeded");
     });
 
@@ -784,6 +788,7 @@ describe("OpenCodeUpdateService", () => {
         "nvm firewall trust module opencode",
         "nvm reshim",
         "opencode upgrade --method npm",
+        "nvm firewall trust module opencode",
       ]);
       expect(events.map((event) => event.step)).toEqual([
         "prepare-target",
@@ -1352,7 +1357,11 @@ describe("OpenCodeUpdateService", () => {
       expect(result.ok).toBe(true);
       expect(
         execUpgrade.mock.calls.map(([file, args]) => [file, ...args].join(" ")),
-      ).toEqual(["pnpm add -g @opencode/cli", "nvm reshim"]);
+      ).toEqual([
+        "pnpm add -g @opencode/cli",
+        "nvm reshim",
+        "nvm firewall trust module opencode",
+      ]);
       expect(service.status).toBe("updateSucceeded");
     });
 
@@ -1547,6 +1556,240 @@ describe("OpenCodeUpdateService", () => {
         installedVersion: "2.0.7",
       });
       expect(customProbes).toBe(1);
+    });
+  });
+
+  describe("nvm module trust", () => {
+    /** exec mock answering only the nvm-windows detection and path probes. */
+    const makeNvmExec = (version = "2.0.1"): RunFn =>
+      vi.fn(async (file: string, args: string[]) => {
+        if (file === "nvm" && args[0] === "version") {
+          return `${version}\n`;
+        }
+        if (file === "where") {
+          return "C:\\Users\\sage\\AppData\\Roaming\\nvm\\opencode.cmd\n";
+        }
+        throw new Error(`unexpected probe: ${file} ${args.join(" ")}`);
+      });
+
+    it("trusts the opencode module before verification after an npm upgrade", async () => {
+      respondVersionSequence([V2_0_6, V2_0_7]);
+      fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.7" }));
+      let execFileCallsAtTrust = -1;
+      const execUpgrade = vi.fn(async (file: string, args: string[]) => {
+        if (file === "nvm" && args[0] === "firewall") {
+          execFileCallsAtTrust = mockExecFile.mock.calls.length;
+        }
+        return "done";
+      });
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.startUpdate("npm");
+
+      expect(result).toEqual({
+        ok: true,
+        state: "updateSucceeded",
+        targetVersion: "2.0.7",
+        installedVersion: "2.0.7",
+      });
+      expect(
+        execUpgrade.mock.calls.map(([file, args]) => [file, ...args].join(" ")),
+      ).toEqual([
+        "opencode upgrade --method npm",
+        "nvm reshim",
+        "nvm firewall trust module opencode",
+      ]);
+      // Only the prepare-local probe ran before the trust call; the
+      // verify probe happens after it.
+      expect(execFileCallsAtTrust).toBe(1);
+    });
+
+    it("keeps the upgrade result when the trust command fails", async () => {
+      respondVersionSequence([V2_0_6, V2_0_7]);
+      fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.7" }));
+      const execUpgrade = vi.fn(async (file: string, args: string[]) => {
+        if (file === "nvm" && args[0] === "firewall") {
+          throw new Error("unknown subcommand: firewall");
+        }
+        return "done";
+      });
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.startUpdate("npm");
+
+      expect(result).toMatchObject({ ok: true, state: "updateSucceeded" });
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("nvm module trust failed"),
+      );
+    });
+
+    it("offers the trust commands when verification still fails under nvm", async () => {
+      // The local probe works once; the post-upgrade probe stays blocked.
+      let probes = 0;
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        probes += 1;
+        if (probes > 1) {
+          lastArgAsCb(args)(new Error("spawn opencode ENOENT"), "");
+        } else {
+          lastArgAsCb(args)(null, V2_0_6);
+        }
+        return {} as ReturnType<typeof execFile>;
+      });
+      fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.7" }));
+      const execUpgrade = vi.fn(async () => "done");
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.startUpdate("npm");
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/version verification failed/);
+      expect(result.remediationCommands).toEqual([
+        "nvm firewall trust module opencode",
+        "nvm reshim",
+      ]);
+    });
+
+    it("also trusts opencode after the NVM4306 remediation re-run", async () => {
+      respondVersionSequence([V2_0_6, V2_0_7]);
+      fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.7" }));
+      let upgradeRuns = 0;
+      const execUpgrade = vi.fn(
+        async (
+          file: string,
+          args: string[],
+          options?: {
+            onLine?: (line: string, stream: "stdout" | "stderr") => void;
+          },
+        ) => {
+          if (file === "opencode") {
+            upgradeRuns += 1;
+            if (upgradeRuns === 1) {
+              for (const line of BLOCKED_OUTPUT) {
+                options?.onLine?.(line, "stdout");
+              }
+              throw new Error("opencode exited with code 1");
+            }
+            return "upgraded";
+          }
+          return "ok";
+        },
+      );
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.startUpdate("npm");
+
+      expect(result.ok).toBe(true);
+      // The remediation trust belongs to the blocked first run; the
+      // module re-trust must still run after the second upgrade.
+      expect(
+        execUpgrade.mock.calls.map(([file, args]) => [file, ...args].join(" ")),
+      ).toEqual([
+        "opencode upgrade --method npm",
+        "nvm firewall trust module opencode",
+        "nvm reshim",
+        "opencode upgrade --method npm",
+        "nvm firewall trust module opencode",
+      ]);
+    });
+
+    it("trusts the opencode module after an npm-family install", async () => {
+      respondVersion(V2_0_7);
+      const execUpgrade = vi.fn(async () => "done");
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.startInstall("npm");
+
+      expect(result).toEqual({
+        ok: true,
+        state: "updateSucceeded",
+        installedVersion: "2.0.7",
+      });
+      expect(
+        execUpgrade.mock.calls.map(([file, args]) => [file, ...args].join(" ")),
+      ).toEqual([
+        "npm install -g @opencode/cli",
+        "nvm reshim",
+        "nvm firewall trust module opencode",
+      ]);
+    });
+
+    it("adds the trust commands to a failed install verification", async () => {
+      failVersion();
+      const execUpgrade = vi.fn(async () => "done");
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.startInstall("npm");
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("version verification failed");
+      expect(result.remediationCommands).toEqual([
+        "nvm firewall trust module opencode",
+        "nvm reshim",
+        expect.stringMatching(/opencode\.ai\/install/),
+      ]);
+    });
+
+    it("self-heals a firewall-blocked probe during a check", async () => {
+      let healed = false;
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        if (!healed) {
+          lastArgAsCb(args)(new Error("spawn opencode ENOENT"), "");
+        } else {
+          lastArgAsCb(args)(null, "opencode v2.0.29\n");
+        }
+        return {} as ReturnType<typeof execFile>;
+      });
+      fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.29" }));
+      const execUpgrade = vi.fn(async () => {
+        healed = true;
+        return "trusted";
+      });
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.checkForUpdates();
+
+      expect(result).toEqual({
+        ok: true,
+        state: "upToDate",
+        current: "2.0.29",
+        latest: "2.0.29",
+      });
+      expect(service.status).toBe("upToDate");
+      expect(execUpgrade).toHaveBeenCalledWith(
+        "nvm",
+        ["firewall", "trust", "module", "opencode"],
+        expect.objectContaining({ timeoutMs: 60_000 }),
+      );
+    });
+
+    it("keeps the disabled verdict when the self-heal trust fails", async () => {
+      failVersion();
+      const execUpgrade = vi.fn(async () => {
+        throw new Error("firewall subcommand missing");
+      });
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.checkForUpdates();
+
+      expect(result).toEqual({ ok: true, state: "disabled" });
+      expect(service.status).toBe("disabled");
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("nvm module trust failed"),
+      );
+    });
+
+    it("skips the module trust for non-nvm-family methods", async () => {
+      respondVersionSequence([V2_0_6, V2_0_7]);
+      fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.7" }));
+      const execUpgrade = vi.fn(async () => "done");
+      const { service } = makeService({ exec: makeNvmExec(), execUpgrade });
+
+      const result = await service.startUpdate("curl");
+
+      expect(result.ok).toBe(true);
+      expect(
+        execUpgrade.mock.calls.some(([file]) => file === "nvm"),
+      ).toBe(false);
     });
   });
 

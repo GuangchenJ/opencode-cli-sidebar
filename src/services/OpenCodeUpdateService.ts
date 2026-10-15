@@ -702,11 +702,10 @@ export class OpenCodeUpdateService implements vscode.Disposable {
         );
       }
 
-      if (
-        !reshimCompleted &&
+      const nvmManaged =
         NVM_FAMILY_METHODS.includes(method) &&
-        (await detectNvmWindows(this.exec))
-      ) {
+        (await detectNvmWindows(this.exec));
+      if (!reshimCompleted && nvmManaged) {
         if (controller.signal.aborted) {
           return this.abandonedResult();
         }
@@ -730,6 +729,13 @@ export class OpenCodeUpdateService implements vscode.Disposable {
         }
       }
 
+      if (nvmManaged) {
+        // The upgrade rewrote the module entry script, so the nvm-windows
+        // firewall now blocks every proxied run with an interactive trust
+        // prompt. Re-trust before verification; trusted modules re-sign
+        // themselves silently on the next run.
+        await this.trustNvmModule(binary, controller.signal);
+      }
       if (controller.signal.aborted) {
         return this.abandonedResult();
       }
@@ -743,7 +749,15 @@ export class OpenCodeUpdateService implements vscode.Disposable {
           `version verification failed: expected ${targetVersion}, found ${
             installed ?? "(none)"
           }`,
-          { targetVersion },
+          nvmManaged
+            ? {
+                targetVersion,
+                remediationCommands: [
+                  `nvm firewall trust module ${moduleBaseName(binary)}`,
+                  "nvm reshim",
+                ],
+              }
+            : { targetVersion },
         );
       }
 
@@ -929,11 +943,11 @@ export class OpenCodeUpdateService implements vscode.Disposable {
         );
       }
 
-      if (
+      const nvmManaged =
         !scripted &&
         NVM_FAMILY_METHODS.includes(method) &&
-        (await detectNvmWindows(this.exec))
-      ) {
+        (await detectNvmWindows(this.exec));
+      if (nvmManaged) {
         if (controller.signal.aborted) {
           return this.abandonedResult();
         }
@@ -957,6 +971,13 @@ export class OpenCodeUpdateService implements vscode.Disposable {
         }
       }
 
+      if (nvmManaged) {
+        // The install rewrote the module entry script, so the nvm-windows
+        // firewall now blocks every proxied run with an interactive trust
+        // prompt. Re-trust before verification; trusted modules re-sign
+        // themselves silently on the next run.
+        await this.trustNvmModule(binary, controller.signal);
+      }
       if (controller.signal.aborted) {
         return this.abandonedResult();
       }
@@ -964,7 +985,13 @@ export class OpenCodeUpdateService implements vscode.Disposable {
       if (installed === undefined) {
         return this.failInstall(
           `version verification failed for ${binary} after install`,
-          [officialInstallCommand()],
+          nvmManaged
+            ? [
+                `nvm firewall trust module ${moduleBaseName(binary)}`,
+                "nvm reshim",
+                officialInstallCommand(),
+              ]
+            : [officialInstallCommand()],
         );
       }
 
@@ -1102,7 +1129,7 @@ export class OpenCodeUpdateService implements vscode.Disposable {
 
     // One `--version` probe feeds both the full version and the major gate;
     // an unprobeable CLI counts as disabled (v2-only feature).
-    const current = await getOpenCodeVersion(binary);
+    const current = await this.probeCurrentVersion(binary);
     const major =
       current !== undefined ? parseOpenCodeMajorVersion(current) : undefined;
     if (current === undefined || major === undefined || major < 2) {
@@ -1133,6 +1160,30 @@ export class OpenCodeUpdateService implements vscode.Disposable {
       `[OpenCodeUpdateService] check complete: current=${current} latest=${latest} state=${state}`,
     );
     return { ok: true, state, current, latest };
+  }
+
+  /**
+   * Version probe that self-heals the nvm-windows v2 module firewall:
+   * when the probe fails on Windows with nvm 2.x present, the module may
+   * be blocked by an interactive trust prompt (e.g. it was upgraded
+   * outside this flow). Trust it once and re-probe; failures fall back
+   * to the original undefined result.
+   */
+  private async probeCurrentVersion(
+    binary: string,
+  ): Promise<string | undefined> {
+    const direct = await getOpenCodeVersion(binary);
+    if (direct !== undefined || process.platform !== "win32") {
+      return direct;
+    }
+    if (!(await detectNvmWindows(this.exec))) {
+      return direct;
+    }
+    if (!(await this.trustNvmModule(binary))) {
+      return direct;
+    }
+    resetOpenCodeCliVersionCaches();
+    return getOpenCodeVersion(binary);
   }
 
   /**
@@ -1225,6 +1276,38 @@ export class OpenCodeUpdateService implements vscode.Disposable {
       `[OpenCodeUpdateService] nvm remediation finished (module=${moduleName})`,
     );
     return { ok: true };
+  }
+
+  /**
+   * Re-trusts the OpenCode module in the nvm-windows v2 firewall after an
+   * upgrade rewrote its entry script. Without this, every proxied run
+   * blocks on an interactive trust prompt the extension-host cannot
+   * answer, so version probes and the user's terminal both stall.
+   * Best-effort: older nvm 2.x builds ship no `firewall` subcommand, and
+   * a failed trust only means verification will surface the problem.
+   */
+  private async trustNvmModule(
+    binary: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (process.platform !== "win32") {
+      return false;
+    }
+    try {
+      await this.execUpgrade(
+        "nvm",
+        ["firewall", "trust", "module", moduleBaseName(binary)],
+        { timeoutMs: NVM_STEP_TIMEOUT_MS, signal },
+      );
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[OpenCodeUpdateService] nvm module trust failed: ${message}`,
+      );
+      return false;
+    }
   }
 
   /** Fresh `--version` probe after version caches are cleared. */
