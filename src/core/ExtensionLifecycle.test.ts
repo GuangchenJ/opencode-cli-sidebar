@@ -1138,6 +1138,36 @@ describe("ExtensionLifecycle", () => {
       await Promise.resolve();
       expect(syncSpy).toHaveBeenCalledTimes(1);
     });
+
+    it("ignores malformed payloads without advancing the dedupe watermark", async () => {
+      const syncSpy = vi
+        .spyOn(
+          TerminalProvider.prototype,
+          "syncOpenCodeVersionFromOtherWindow",
+        )
+        .mockResolvedValue(undefined);
+      await lifecycle.activate(mockContext);
+
+      const emitRaw = (raw: string) => {
+        vi.mocked(mockContext.secrets.get).mockResolvedValue(raw);
+        mockContext.secrets.__emitSecretChange(SYNC_KEY);
+      };
+
+      // Valid timestamp but no version: ignored, watermark untouched.
+      emitRaw(JSON.stringify({ at: 5_000 }));
+      // Valid JSON but not a payload object: ignored without throwing.
+      emitRaw("null");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // A later valid signal with a smaller timestamp still applies.
+      emitRaw(JSON.stringify({ version: "2.0.39", at: 4_000 }));
+      await vi.waitFor(() => {
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(syncSpy).toHaveBeenCalledWith("2.0.39");
+    });
   });
 
   describe("sendKeybindingsToShell auto-enable (ensureSendKeybindingsToShellDefault)", () => {

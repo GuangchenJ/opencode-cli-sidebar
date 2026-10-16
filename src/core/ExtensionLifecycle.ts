@@ -202,28 +202,37 @@ export class ExtensionLifecycle {
           if (event.key !== UPDATE_SYNC_SECRET_KEY) {
             return;
           }
-          let payload: { version?: unknown; at?: unknown };
+          let parsed: unknown;
           try {
-            payload = JSON.parse(
+            parsed = JSON.parse(
               (await context.secrets.get(UPDATE_SYNC_SECRET_KEY)) ?? "",
-            ) as { version?: unknown; at?: unknown };
+            );
           } catch {
+            parsed = undefined;
+          }
+          // Valid JSON is not necessarily a payload object: "null",
+          // numbers, and arrays must all be ignored, not thrown on.
+          if (parsed === null || typeof parsed !== "object") {
             logger.debug(
               "[ExtensionLifecycle] ignored a malformed OpenCode version sync signal",
             );
             return;
           }
-          const at = typeof payload.at === "number" ? payload.at : 0;
+          const { version, at: rawAt } = parsed as {
+            version?: unknown;
+            at?: unknown;
+          };
+          // Validate before advancing the dedupe watermark: a signal
+          // without a usable version must not swallow a later valid one.
+          if (typeof version !== "string" || !version) {
+            return;
+          }
+          const at = typeof rawAt === "number" ? rawAt : 0;
           if (at <= this.lastSyncSignalAt) {
             return;
           }
           this.lastSyncSignalAt = at;
-          if (typeof payload.version !== "string" || !payload.version) {
-            return;
-          }
-          void this.tuiProvider?.syncOpenCodeVersionFromOtherWindow(
-            payload.version,
-          );
+          void this.tuiProvider?.syncOpenCodeVersionFromOtherWindow(version);
         }),
       );
       const openCodeChangelogService = new OpenCodeChangelogService(

@@ -484,6 +484,8 @@ export async function detectOpenCodeMajorVersion(
  * probes are cached for `OPENCODE_VERSION_CACHE_TTL_MS`; an expired
  * entry counts as a miss and re-probes, and the fresh result also drops
  * the cached protocol decision so a v1↔v2 transition is re-derived.
+ * A probe superseded by a cache reset is discarded: it writes no caches
+ * and leaves the successor's in-flight slot intact.
  */
 export async function getOpenCodeVersion(
   commandOrBinary = "opencode",
@@ -504,6 +506,13 @@ export async function getOpenCodeVersion(
       "info",
       `[OpenCodeCliCompat] full version probe: binary=${JSON.stringify(binary)} version=${JSON.stringify(version ?? "(none)")} output=${JSON.stringify(output)}`,
     );
+    // resetOpenCodeCliVersionCaches() may clear a probe's registration
+    // while it is still in flight (cross-window sync, update check). A
+    // superseded probe must not write stale values into the caches under
+    // a fresh timestamp nor delete its successor's in-flight slot.
+    if (fullVersionInFlight.get(binary) !== pending) {
+      return version;
+    }
     if (version !== undefined) {
       const at = versionClock();
       fullVersionCache.set(binary, { value: version, at });

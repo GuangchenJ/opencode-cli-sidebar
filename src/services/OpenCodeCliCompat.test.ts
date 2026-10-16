@@ -13,6 +13,7 @@ import {
   parseOpenCodeFullVersion,
   parseOpenCodeMajorVersion,
   peekOpenCodeVersion,
+  peekOpenCodeVersionProbe,
   protocolForMajorVersion,
   resetOpenCodeCliCompatCaches,
   resetOpenCodeCliVersionCaches,
@@ -303,6 +304,38 @@ describe("OpenCodeCliCompat", () => {
       await expect(getOpenCodeVersion("opencode")).resolves.toBe("2.0.6");
       await expect(detectOpenCodeApiProtocol("opencode")).resolves.toBe("v2");
       expect(mockExecFile).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("in-flight probe reset race", () => {
+    type ExecCb = (error: Error | null, stdout: string) => void;
+    const lastArgAsCb = (args: unknown[]): ExecCb =>
+      args[args.length - 1] as ExecCb;
+
+    it("discards a superseded in-flight probe without touching the successor", async () => {
+      const callbacks: ExecCb[] = [];
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        callbacks.push(lastArgAsCb(args));
+        return {} as ReturnType<typeof execFile>;
+      });
+
+      const first = getOpenCodeVersion("opencode");
+      // A cross-window sync / update check resets while the first probe
+      // is still in flight, so a second probe is spawned and registered.
+      resetOpenCodeCliVersionCaches();
+      const second = getOpenCodeVersion("opencode");
+      expect(callbacks).toHaveLength(2);
+
+      // The stale probe completes: no cache write, no slot delete.
+      callbacks[0](null, "2.0.6\n");
+      await expect(first).resolves.toBe("2.0.6");
+      expect(peekOpenCodeVersion("opencode")).toBeUndefined();
+      expect(peekOpenCodeVersionProbe("opencode")).toBeDefined();
+
+      // The successor completes and owns the cache.
+      callbacks[1](null, "2.0.7\n");
+      await expect(second).resolves.toBe("2.0.7");
+      expect(peekOpenCodeVersion("opencode")).toBe("2.0.7");
     });
   });
 
