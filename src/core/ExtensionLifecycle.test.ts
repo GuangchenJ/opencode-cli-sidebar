@@ -1072,6 +1072,74 @@ describe("ExtensionLifecycle", () => {
     });
   });
 
+  describe("cross-window OpenCode update sync", () => {
+    const SYNC_KEY = "opencode-cli-sidebar.updateSync";
+
+    it("stores a timestamped sync signal when an update succeeds in this window", async () => {
+      vi.mocked(mockContext.secrets.store).mockResolvedValue(undefined);
+      await lifecycle.activate(mockContext);
+
+      const service = (
+        lifecycle as unknown as {
+          opencodeUpdateService: OpenCodeUpdateService;
+        }
+      ).opencodeUpdateService;
+      (
+        service as unknown as {
+          _onDidChangeStatus: { fire: (event: unknown) => void };
+        }
+      )._onDidChangeStatus.fire({
+        state: "updateSucceeded",
+        installedVersion: "2.0.39",
+      });
+
+      expect(mockContext.secrets.store).toHaveBeenCalledTimes(1);
+      const [key, raw] = vi.mocked(mockContext.secrets.store).mock.calls[0];
+      expect(key).toBe(SYNC_KEY);
+      const payload = JSON.parse(raw as string) as {
+        version: string;
+        at: number;
+      };
+      expect(payload.version).toBe("2.0.39");
+      expect(payload.at).toBeGreaterThan(0);
+    });
+
+    it("re-syncs the provider version when another window signals an update", async () => {
+      const syncSpy = vi
+        .spyOn(
+          TerminalProvider.prototype,
+          "syncOpenCodeVersionFromOtherWindow",
+        )
+        .mockResolvedValue(undefined);
+      await lifecycle.activate(mockContext);
+
+      const emitSignal = (at: number) => {
+        vi.mocked(mockContext.secrets.get).mockResolvedValue(
+          JSON.stringify({ version: "2.0.39", at }),
+        );
+        mockContext.secrets.__emitSecretChange(SYNC_KEY);
+      };
+      emitSignal(1_000);
+      await vi.waitFor(() => {
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(syncSpy).toHaveBeenCalledWith("2.0.39");
+
+      // Other secret keys are ignored entirely.
+      mockContext.secrets.__emitSecretChange("some-other-secret");
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+
+      // Replaying the same timestamp is deduplicated.
+      emitSignal(1_000);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("sendKeybindingsToShell auto-enable (ensureSendKeybindingsToShellDefault)", () => {
     it("should respect explicit user config (globalValue) and skip auto-enable", async () => {
       const inspectMock = vi.fn(() => ({ globalValue: false }));

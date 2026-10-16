@@ -1269,6 +1269,101 @@ describe("TerminalProvider", () => {
         installedVersion: "2.0.7",
       });
     });
+
+    it("syncs a version from another window and settles idle when current", async () => {
+      mockConfiguration();
+      const { view, emitter, service } = setup();
+      emitter.fire({
+        state: "available",
+        currentVersion: "2.0.6",
+        latestVersion: "2.0.39",
+      });
+      await flushAsyncStartup();
+      vi.mocked(service.probeLocalVersion).mockResolvedValue("2.0.39");
+
+      await provider.syncOpenCodeVersionFromOtherWindow("2.0.39");
+
+      // Silent sync: no notice, no check outcome, no popover signal.
+      const push = getUpdateStatusPushes(view).at(-1);
+      expect(push).toMatchObject({
+        state: "idle",
+        step: "",
+        installedVersion: "2.0.39",
+        currentVersion: "2.0.39",
+        latestVersion: "2.0.39",
+      });
+      expect(push.notice).toBeUndefined();
+      expect(push.checkOutcome).toBeUndefined();
+      expect(push.openMethodPicker).toBeUndefined();
+    });
+
+    it("keeps the available badge when the synced version is still outdated", async () => {
+      mockConfiguration();
+      const { view, emitter, service } = setup();
+      emitter.fire({
+        state: "available",
+        currentVersion: "2.0.6",
+        latestVersion: "2.0.40",
+      });
+      await flushAsyncStartup();
+      vi.mocked(service.probeLocalVersion).mockResolvedValue("2.0.39");
+
+      await provider.syncOpenCodeVersionFromOtherWindow("2.0.39");
+
+      expect(getUpdateStatusPushes(view).at(-1)).toMatchObject({
+        state: "available",
+        installedVersion: "2.0.39",
+        currentVersion: "2.0.39",
+        latestVersion: "2.0.40",
+      });
+    });
+
+    it("skips the sync while an update flow owns the UI", async () => {
+      mockConfiguration();
+      const { emitter, service } = setup();
+      emitter.fire({ state: "updating", step: "prepare-target" });
+
+      await provider.syncOpenCodeVersionFromOtherWindow("2.0.39");
+
+      expect(service.probeLocalVersion).not.toHaveBeenCalled();
+    });
+
+    it("skips the sync while this window's success card owns the UI", async () => {
+      mockConfiguration();
+      const { view, emitter, service } = setup();
+      emitter.fire({ state: "updateSucceeded", installedVersion: "2.0.7" });
+      const pushesBefore = getUpdateStatusPushes(view).length;
+
+      await provider.syncOpenCodeVersionFromOtherWindow("2.0.39");
+
+      expect(getUpdateStatusPushes(view).length).toBe(pushesBefore);
+      expect(service.probeLocalVersion).not.toHaveBeenCalled();
+    });
+
+    it("delegates to the CLI re-detect when another window installed the CLI", async () => {
+      mockConfiguration();
+      const { view, emitter, service } = setup();
+      emitter.fire({ state: "installable", methods: ["npm"], defaultMethod: "npm" });
+      await flushAsyncStartup();
+      const pushesBefore = getUpdateStatusPushes(view).length;
+
+      await provider.syncOpenCodeVersionFromOtherWindow("2.1.0");
+
+      expect(service.recheckCliAvailable).toHaveBeenCalledTimes(1);
+      expect(service.probeLocalVersion).not.toHaveBeenCalled();
+      // No direct pill push: the re-detect path drives the UI itself.
+      expect(getUpdateStatusPushes(view).length).toBe(pushesBefore);
+    });
+
+    it("probes the disk version fresh during a cross-window sync", async () => {
+      mockConfiguration();
+      const { service } = setup();
+      vi.mocked(service.probeLocalVersion).mockResolvedValue("2.0.39");
+
+      await provider.syncOpenCodeVersionFromOtherWindow("2.0.39");
+
+      expect(service.probeLocalVersion).toHaveBeenCalledWith(true);
+    });
   });
 
 });

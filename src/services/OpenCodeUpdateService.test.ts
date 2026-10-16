@@ -364,6 +364,28 @@ describe("OpenCodeUpdateService", () => {
       expect(mockExecFile).toHaveBeenCalledTimes(1);
     });
 
+    it("probes the disk fresh so an external upgrade is not reported as pending", async () => {
+      // Prime the version cache the way the activation pill does.
+      respondVersion(V2_0_6);
+      const { service } = makeService();
+      await expect(service.probeLocalVersion()).resolves.toBe("2.0.6");
+
+      // The user upgrades the CLI outside the extension; the next check
+      // must compare the new disk version, not the cached old one.
+      respondVersion(V2_0_7);
+      fetchMock.mockResolvedValueOnce(jsonResponse({ version: "2.0.7" }));
+
+      const result = await service.checkForUpdates();
+
+      expect(result).toEqual({
+        ok: true,
+        state: "upToDate",
+        current: "2.0.7",
+        latest: "2.0.7",
+      });
+      expect(service.status).toBe("upToDate");
+    });
+
     it("dedupes concurrent checks onto the in-flight check", async () => {
       respondVersion(V2_0_6);
       fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.6" }));
@@ -1003,9 +1025,10 @@ describe("OpenCodeUpdateService", () => {
     });
 
     it("waits for an in-flight check and continues the update afterwards", async () => {
-      // execFile call order: check #1 probe, then the verify probe (the
-      // in-flight check and prepare-local reuse the version caches).
-      respondVersionSequence([V2_0_6, V2_0_7]);
+      // execFile call order: each check probes --version fresh (both see
+      // the old disk version), and the verify probe after the upgrade
+      // reports the new one.
+      respondVersionSequence([V2_0_6, V2_0_6, V2_0_7]);
       fetchMock.mockResolvedValue(jsonResponse({ version: "2.0.7" }));
       const execUpgrade = vi.fn(async () => "upgraded");
       const { service } = makeService({ execUpgrade });

@@ -324,11 +324,19 @@ export class ExtensionContext {
     get: vi.fn(),
     update: vi.fn(),
   };
-  secrets = {
-    get: vi.fn(),
-    store: vi.fn(),
-    delete: vi.fn(),
-  };
+  secrets = (() => {
+    const secretChangeEmitter = new EventEmitter<{ key: string }>();
+    return {
+      get: vi.fn(),
+      store: vi.fn(),
+      delete: vi.fn(),
+      onDidChange: secretChangeEmitter.event,
+      /** Test helper: fire a SecretStorage change event for `key`. */
+      __emitSecretChange: (key: string) => {
+        secretChangeEmitter.fire({ key });
+      },
+    };
+  })();
   extension = {
     id: "test.extension",
     extensionUri: { fsPath: "/test/extension", path: "/test/extension" },

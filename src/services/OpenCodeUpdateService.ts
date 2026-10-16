@@ -423,9 +423,14 @@ export class OpenCodeUpdateService implements vscode.Disposable {
    * Fast local-only version probe for the pill: no registry fetch and no
    * state transition, so startup can show the version before the first
    * scheduled network check resolves. Returns the version for v2+ CLIs
-   * only (the update flow is v2-only); undefined otherwise.
+   * only (the update flow is v2-only); undefined otherwise. With `fresh`
+   * the shared version caches are dropped first so the probe reads the
+   * disk state another window may just have written.
    */
-  public async probeLocalVersion(): Promise<string | undefined> {
+  public async probeLocalVersion(fresh = false): Promise<string | undefined> {
+    if (fresh) {
+      resetOpenCodeCliVersionCaches();
+    }
     const binary = extractCliBinary(this.getBinaryFn());
     const current = await getOpenCodeVersion(binary);
     if (current === undefined) return undefined;
@@ -1126,6 +1131,11 @@ export class OpenCodeUpdateService implements vscode.Disposable {
    */
   private async performCheck(): Promise<OpenCodeUpdateCheckResult> {
     const binary = extractCliBinary(this.getBinaryFn());
+
+    // The CLI may have been upgraded outside the extension (terminal,
+    // npm, another window): drop cached versions so the comparison below
+    // sees the binary on disk, not a value from an earlier probe.
+    resetOpenCodeCliVersionCaches();
 
     // One `--version` probe feeds both the full version and the major gate;
     // an unprobeable CLI counts as disabled (v2-only feature).

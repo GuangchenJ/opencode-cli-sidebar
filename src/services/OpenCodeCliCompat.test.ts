@@ -2,14 +2,17 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   buildOpenCodeHttpPortArg,
   buildOpenCodeV2AuthHeader,
+  __setOpenCodeVersionClockForTests,
   __setWindowsShellRetryForTests,
   detectOpenCodeApiProtocol,
   detectOpenCodeMajorVersion,
   extractCliBinary,
   commandBypassesSharedService,
   getOpenCodeVersion,
+  OPENCODE_VERSION_CACHE_TTL_MS,
   parseOpenCodeFullVersion,
   parseOpenCodeMajorVersion,
+  peekOpenCodeVersion,
   protocolForMajorVersion,
   resetOpenCodeCliCompatCaches,
   resetOpenCodeCliVersionCaches,
@@ -229,6 +232,76 @@ describe("OpenCodeCliCompat", () => {
       await getOpenCodeVersion("opencode");
       resetOpenCodeCliCompatCaches();
       await getOpenCodeVersion("opencode");
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("version cache TTL", () => {
+    type ExecCb = (error: Error | null, stdout: string) => void;
+    const lastArgAsCb = (args: unknown[]): ExecCb =>
+      args[args.length - 1] as ExecCb;
+
+    it("re-probes after the TTL expires but not within it", async () => {
+      let clock = 1_000;
+      __setOpenCodeVersionClockForTests(() => clock);
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        lastArgAsCb(args)(null, "2.0.6\n");
+        return {} as ReturnType<typeof execFile>;
+      });
+
+      await expect(getOpenCodeVersion("opencode")).resolves.toBe("2.0.6");
+
+      clock += 1_000;
+      await expect(getOpenCodeVersion("opencode")).resolves.toBe("2.0.6");
+      expect(mockExecFile).toHaveBeenCalledTimes(1);
+
+      clock += OPENCODE_VERSION_CACHE_TTL_MS;
+      await expect(getOpenCodeVersion("opencode")).resolves.toBe("2.0.6");
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+    });
+
+    it("expires the major cache and the peek after the TTL", async () => {
+      let clock = 0;
+      __setOpenCodeVersionClockForTests(() => clock);
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        lastArgAsCb(args)(null, "opencode v2.0.6\n");
+        return {} as ReturnType<typeof execFile>;
+      });
+
+      await expect(detectOpenCodeMajorVersion("opencode")).resolves.toBe(2);
+      expect(peekOpenCodeVersion("opencode")).toBe("2.0.6");
+
+      clock += OPENCODE_VERSION_CACHE_TTL_MS + 1;
+      expect(peekOpenCodeVersion("opencode")).toBeUndefined();
+
+      // The expired major counts as a miss and re-probes the new major.
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        lastArgAsCb(args)(null, "opencode v1.18.9\n");
+        return {} as ReturnType<typeof execFile>;
+      });
+      await expect(detectOpenCodeMajorVersion("opencode")).resolves.toBe(1);
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops the cached protocol for a binary after a fresh version probe", async () => {
+      let clock = 0;
+      __setOpenCodeVersionClockForTests(() => clock);
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        lastArgAsCb(args)(null, "opencode v1.18.9\n");
+        return {} as ReturnType<typeof execFile>;
+      });
+
+      await expect(detectOpenCodeApiProtocol("opencode")).resolves.toBe("v1");
+
+      // External upgrade to v2: once the version cache expires, the fresh
+      // probe must also invalidate the cached v1 protocol decision.
+      clock += OPENCODE_VERSION_CACHE_TTL_MS + 1;
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        lastArgAsCb(args)(null, "opencode v2.0.6\n");
+        return {} as ReturnType<typeof execFile>;
+      });
+      await expect(getOpenCodeVersion("opencode")).resolves.toBe("2.0.6");
+      await expect(detectOpenCodeApiProtocol("opencode")).resolves.toBe("v2");
       expect(mockExecFile).toHaveBeenCalledTimes(2);
     });
   });

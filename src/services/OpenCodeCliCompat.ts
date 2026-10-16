@@ -26,11 +26,37 @@ export interface OpenCodeV2ServiceInfo {
   pid?: number;
 }
 
-const versionCache = new Map<string, number>();
-const fullVersionCache = new Map<string, string>();
+/**
+ * How long a cached CLI version stays fresh. Older entries count as cache
+ * misses so an upgrade performed outside the extension (terminal, npm,
+ * another window) is picked up by the next probe without a manual reset.
+ */
+export const OPENCODE_VERSION_CACHE_TTL_MS = 5_000;
+
+/** A cached version value plus the clock reading it was recorded at. */
+interface VersionCacheEntry<T> {
+  value: T;
+  at: number;
+}
+
+const versionCache = new Map<string, VersionCacheEntry<number>>();
+const fullVersionCache = new Map<string, VersionCacheEntry<string>>();
 /** In-flight full-version probes, keyed by binary: concurrent callers share one spawn. */
 const fullVersionInFlight = new Map<string, Promise<string | undefined>>();
 const protocolCache = new Map<string, OpenCodeApiProtocol>();
+
+/** Clock feeding the version-cache timestamps; overridable in tests. */
+let versionClock: () => number = Date.now;
+
+/** True when an entry recorded at `at` is still within the TTL. */
+function isFreshVersionEntry(at: number): boolean {
+  return versionClock() - at < OPENCODE_VERSION_CACHE_TTL_MS;
+}
+
+/** Restores the default version-cache clock (tests). */
+function resetVersionClock(): void {
+  versionClock = Date.now;
+}
 
 export type OpenCodeCliDiagnosticLevel = "info" | "warn";
 export type OpenCodeCliDiagnosticLogger = (
@@ -417,15 +443,17 @@ export async function streamOpenCodeCliCommand(
 
 /**
  * Detects the OpenCode CLI major version from `<bin> --version`.
- * Returns undefined when detection fails; callers should fall back to v1.
+ * Cached majors expire after `OPENCODE_VERSION_CACHE_TTL_MS`; an expired
+ * entry re-probes through the shared full-version probe. Returns
+ * undefined when detection fails; callers should fall back to v1.
  */
 export async function detectOpenCodeMajorVersion(
   commandOrBinary: string,
 ): Promise<number | undefined> {
   const binary = extractCliBinary(commandOrBinary);
   const cached = versionCache.get(binary);
-  if (cached !== undefined) {
-    return cached;
+  if (cached && isFreshVersionEntry(cached.at)) {
+    return cached.value;
   }
 
   // Derive the major from the shared full-version probe so a single
@@ -440,7 +468,10 @@ export async function detectOpenCodeMajorVersion(
     `[OpenCodeCliCompat] version probe: binary=${JSON.stringify(binary)} major=${major ?? "(none)"} version=${JSON.stringify(full ?? "(none)")}`,
   );
   if (major !== undefined) {
-    versionCache.set(binary, major);
+    versionCache.set(binary, {
+      value: major,
+      at: fullVersionCache.get(binary)?.at ?? versionClock(),
+    });
   }
   return major;
 }
@@ -449,15 +480,18 @@ export async function detectOpenCodeMajorVersion(
  * Resolves the full OpenCode CLI version string from `<bin> --version`
  * (e.g. "1.18.33"; dev builds print "local"). Returns undefined when the
  * probe fails. Concurrent calls for the same binary share one probe;
- * failed probes are not cached, so a later call retries.
+ * failed probes are not cached, so a later call retries. Successful
+ * probes are cached for `OPENCODE_VERSION_CACHE_TTL_MS`; an expired
+ * entry counts as a miss and re-probes, and the fresh result also drops
+ * the cached protocol decision so a v1↔v2 transition is re-derived.
  */
 export async function getOpenCodeVersion(
   commandOrBinary = "opencode",
 ): Promise<string | undefined> {
   const binary = extractCliBinary(commandOrBinary);
   const cached = fullVersionCache.get(binary);
-  if (cached !== undefined) {
-    return cached;
+  if (cached && isFreshVersionEntry(cached.at)) {
+    return cached.value;
   }
   const inFlight = fullVersionInFlight.get(binary);
   if (inFlight) {
@@ -471,13 +505,18 @@ export async function getOpenCodeVersion(
       `[OpenCodeCliCompat] full version probe: binary=${JSON.stringify(binary)} version=${JSON.stringify(version ?? "(none)")} output=${JSON.stringify(output)}`,
     );
     if (version !== undefined) {
-      fullVersionCache.set(binary, version);
+      const at = versionClock();
+      fullVersionCache.set(binary, { value: version, at });
       // One probe feeds both caches: derive the major from the full
       // version so `detectOpenCodeMajorVersion` never spawns again.
       const major = parseOpenCodeMajorVersion(version);
       if (major !== undefined) {
-        versionCache.set(binary, major);
+        versionCache.set(binary, { value: major, at });
       }
+      // The fresh version may follow an external upgrade: drop the stale
+      // protocol decision so the next detection re-derives it from the
+      // fresh major.
+      protocolCache.delete(binary);
     }
     fullVersionInFlight.delete(binary);
     return version;
@@ -486,9 +525,13 @@ export async function getOpenCodeVersion(
   return pending;
 }
 
-/** Cached full version for a binary without probing; undefined when unknown. */
+/**
+ * Fresh cached full version for a binary without probing; undefined
+ * when unknown or older than `OPENCODE_VERSION_CACHE_TTL_MS`.
+ */
 export function peekOpenCodeVersion(binary: string): string | undefined {
-  return fullVersionCache.get(binary);
+  const cached = fullVersionCache.get(binary);
+  return cached && isFreshVersionEntry(cached.at) ? cached.value : undefined;
 }
 
 /** In-flight full-version probe for a binary, if one is running. */
@@ -498,13 +541,17 @@ export function peekOpenCodeVersionProbe(
   return fullVersionInFlight.get(binary);
 }
 
-/** Clears cached CLI version/protocol lookups (tests). */
+/**
+ * Clears cached CLI version/protocol lookups and restores the default
+ * version-cache clock (tests).
+ */
 export function resetOpenCodeCliCompatCaches(): void {
   versionCache.clear();
   fullVersionCache.clear();
   fullVersionInFlight.clear();
   protocolCache.clear();
   resetWindowsShellRetry();
+  resetVersionClock();
   diagnosticLogger = undefined;
 }
 
@@ -524,6 +571,11 @@ export function resetOpenCodeCliVersionCaches(): void {
 /** Overrides the Windows shell-retry behavior (tests only). */
 export function __setWindowsShellRetryForTests(enabled: boolean): void {
   windowsShellRetry = enabled;
+}
+
+/** Overrides the version-cache clock (tests only). */
+export function __setOpenCodeVersionClockForTests(clock: () => number): void {
+  versionClock = clock;
 }
 
 /**
@@ -674,7 +726,9 @@ export async function resolveOpenCodeV2Service(
 
 /**
  * Resolves the HTTP API protocol for a CLI command via `--version`.
- * Unknown versions fall back to v1.
+ * Unknown versions fall back to v1. A fresh version probe drops the
+ * cached protocol decision, so a v1↔v2 upgrade performed outside the
+ * extension is re-derived once the version cache expires or resets.
  */
 export async function detectOpenCodeApiProtocol(
   commandOrBinary = "opencode",

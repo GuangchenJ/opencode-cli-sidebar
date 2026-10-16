@@ -13,6 +13,7 @@ import {
 } from "../services/OpenCodeChangelogService";
 import { DataThrottleService } from "../services/DataThrottleService";
 import { InstanceId, InstanceStore } from "../services/InstanceStore";
+import { isVersionNewer } from "../services/semver";
 import {
   FocusIndicatorMode,
   HostMessage,
@@ -75,6 +76,8 @@ export class TerminalProvider
 
   /** True while the current flow is a missing-CLI install, not an update. */
   private updateFlowFromInstall = false;
+  /** True while a cross-window version sync probe is in flight. */
+  private syncingVersionFromOtherWindow = false;
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly terminalManager: TerminalManager,
@@ -611,6 +614,79 @@ export class TerminalProvider
       currentVersion: version,
     };
     this.postUpdateUiStatus(this.currentUpdateUiSnapshot());
+  }
+
+  /**
+   * Cross-window version sync: another window finished an OpenCode
+   * self-update, so this window's pill may be stale. Silent by design —
+   * no notices, no popover, only the corrected versions. An in-flight
+   * flow (updating) or this window's own success card owns the UI and
+   * wins; an installable state means the other window installed the CLI,
+   * which is the re-detect flow's job to resolve. The originating window
+   * also receives its own signal: its success state guard makes that a
+   * no-op.
+   */
+  public async syncOpenCodeVersionFromOtherWindow(
+    expectedVersion?: string,
+  ): Promise<void> {
+    if (!this.opencodeUpdateService) {
+      return;
+    }
+    if (
+      this.updateUi.state === "updating" ||
+      this.updateUi.state === "success"
+    ) {
+      return;
+    }
+    if (this.updateUi.state === "installable") {
+      await this.retryCliProbe();
+      return;
+    }
+    if (this.syncingVersionFromOtherWindow) {
+      return;
+    }
+    this.syncingVersionFromOtherWindow = true;
+    try {
+      const version = await this.opencodeUpdateService.probeLocalVersion(true);
+      if (!version) {
+        this.logger.debug(
+          `[TerminalProvider] cross-window sync could not re-probe the OpenCode version (expected ${
+            expectedVersion ?? "(unknown)"
+          })`,
+        );
+        return;
+      }
+      const previousState = this.updateUi.state;
+      const stillOutdated =
+        previousState === "available" &&
+        !!this.updateUi.latestVersion &&
+        isVersionNewer(this.updateUi.latestVersion, version);
+      // Explicit empties when settling idle: the webview merge keeps
+      // stale values for absent keys, so failed-flow leftovers must be
+      // cleared here. latestVersion is kept for tooltips.
+      const settlesIdle =
+        !stillOutdated &&
+        (previousState === "available" || previousState === "failed");
+      this.updateUi = {
+        ...this.updateUi,
+        installedVersion: version,
+        currentVersion: version,
+        ...(settlesIdle && {
+          state: "idle" as const,
+          step: "",
+          detail: "",
+          manualCommands: [],
+          remediationCommands: [],
+          notice: undefined,
+        }),
+      };
+      this.postUpdateUiStatus(this.currentUpdateUiSnapshot());
+      this.logger.info(
+        `[TerminalProvider] OpenCode version re-synced from another window: ${version}`,
+      );
+    } finally {
+      this.syncingVersionFromOtherWindow = false;
+    }
   }
 
   /**

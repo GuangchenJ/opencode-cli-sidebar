@@ -33,6 +33,14 @@ import {
 } from "./commands";
 
 /**
+ * SecretStorage key used as a cross-window update signal bus:
+ * SecretStorage.onDidChange fires in every window of the same profile,
+ * and storing the identical value twice fires nothing, so the payload
+ * carries a timestamp.
+ */
+const UPDATE_SYNC_SECRET_KEY = "opencode-cli-sidebar.updateSync";
+
+/**
  * Manages extension activation, service initialization, and cleanup.
  */
 export class ExtensionLifecycle {
@@ -159,6 +167,65 @@ export class ExtensionLifecycle {
         { logger },
       );
       context.subscriptions.push(this.opencodeUpdateService);
+      // Cross-window sync, write side: this window's update flow
+      // succeeded, so announce the fresh version to every window of this
+      // profile via SecretStorage. The timestamp defeats SecretStorage's
+      // identical-value dedupe so each success re-fires onDidChange.
+      context.subscriptions.push(
+        this.opencodeUpdateService.onDidChangeStatus((event) => {
+          if (event.state !== "updateSucceeded" || !event.installedVersion) {
+            return;
+          }
+          void context.secrets
+            .store(
+              UPDATE_SYNC_SECRET_KEY,
+              JSON.stringify({
+                version: event.installedVersion,
+                at: Date.now(),
+              }),
+            )
+            .then(undefined, (error) => {
+              logger.debug(
+                `[ExtensionLifecycle] failed to publish the OpenCode version sync signal: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              );
+            });
+        }),
+      );
+      // Cross-window sync, read side: another window announced a fresh
+      // version. The provider may not exist yet during activation; the
+      // optional chain makes that a no-op, and the provider's own state
+      // guard no-ops the originating window's echo of its own signal.
+      context.subscriptions.push(
+        context.secrets.onDidChange(async (event) => {
+          if (event.key !== UPDATE_SYNC_SECRET_KEY) {
+            return;
+          }
+          let payload: { version?: unknown; at?: unknown };
+          try {
+            payload = JSON.parse(
+              (await context.secrets.get(UPDATE_SYNC_SECRET_KEY)) ?? "",
+            ) as { version?: unknown; at?: unknown };
+          } catch {
+            logger.debug(
+              "[ExtensionLifecycle] ignored a malformed OpenCode version sync signal",
+            );
+            return;
+          }
+          const at = typeof payload.at === "number" ? payload.at : 0;
+          if (at <= this.lastSyncSignalAt) {
+            return;
+          }
+          this.lastSyncSignalAt = at;
+          if (typeof payload.version !== "string" || !payload.version) {
+            return;
+          }
+          void this.tuiProvider?.syncOpenCodeVersionFromOtherWindow(
+            payload.version,
+          );
+        }),
+      );
       const openCodeChangelogService = new OpenCodeChangelogService(
         context.globalState,
         { logger },
@@ -313,6 +380,11 @@ export class ExtensionLifecycle {
   // ── OpenCode update auto-check scheduling ──
 
   private updateCheckTimer: NodeJS.Timeout | undefined;
+
+  // ── Cross-window OpenCode update sync ──
+
+  /** Newest cross-window update sync signal timestamp already applied. */
+  private lastSyncSignalAt = 0;
 
   // ── Missing-CLI install prompt ──
 

@@ -205,6 +205,13 @@ describe("vscode mock", () => {
     await context.secrets.get("secret");
     await context.secrets.store("secret", "value");
     await context.secrets.delete("secret");
+    const secretsListener = vi.fn();
+    const secretsDisposable = context.secrets.onDidChange(secretsListener);
+    context.secrets.__emitSecretChange("secret");
+    expect(secretsListener).toHaveBeenCalledWith({ key: "secret" });
+    secretsDisposable.dispose();
+    context.secrets.__emitSecretChange("secret");
+    expect(secretsListener).toHaveBeenCalledTimes(1);
     await context.extension.activate();
 
     const view = vscode.WebviewView();
