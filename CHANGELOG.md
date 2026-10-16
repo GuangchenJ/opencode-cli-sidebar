@@ -5,6 +5,13 @@ All notable changes to the "Opencode CLI Sidebar" extension will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### 5.4.0
+**New Features**
+- **OpenCode**: Sync OpenCode updates across windows via SecretStorage.
+
+**Bug Fixes**
+- **Update**: Harden OpenCode version sync against probe cache races.
+
 #### 5.3.1
 **New Features**
 - **Update**: Trust the OpenCode module under nvm after upgrades.
