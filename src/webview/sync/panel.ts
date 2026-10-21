@@ -6,8 +6,8 @@ import { postMessage } from "../shared/vscode-api";
 import type {
   WebDavSyncSnapshot,
 } from "../../types";
-import { closeSyncPopover } from "./popover";
 import {
+  statusIconFor,
   type SyncUiState,
 } from "./state";
 import { st } from "./strings";
@@ -30,6 +30,24 @@ function el<T extends HTMLElement>(id: string): T {
 }
 
 export type SyncPaneName = "general" | "server" | "items" | "conflict" | "history" | "log";
+
+/** Section a status icon points at, so a click on the icon or on the
+ *  tooltip action lands where the fix or the detail lives. */
+export function paneForStatus(state: SyncUiState): SyncPaneName {
+  if (state.state === "unconfigured") {
+    return "general";
+  }
+  switch (statusIconFor(state)?.kind) {
+    case "conflict":
+      return "conflict";
+    case "pending":
+      return "items";
+    case "error":
+      return "log";
+    default:
+      return "general";
+  }
+}
 
 // ── Collapse state (session-only; reset to expanded when re-enabled) ──
 
@@ -87,7 +105,6 @@ export function switchPane(name: SyncPaneName): void {
 }
 
 export function openSyncPanel(pane?: SyncPaneName): void {
-  closeSyncPopover();
   el("dav-overlay").classList.remove("hidden");
   if (pane) {
     switchPane(pane);
@@ -245,6 +262,15 @@ export function initPanel(handlers: {
   onConflictDiff: (id: string) => void;
   onClearHistory: () => void;
 }): void {
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Escape" &&
+      !el("dav-overlay").classList.contains("hidden")
+    ) {
+      closeSyncPanel();
+    }
+  });
+
   el("dav-modal-close").addEventListener("click", closeSyncPanel);
   el("dav-foot-sync").addEventListener("click", handlers.onSyncNow);
   el("dav-btn-save").addEventListener("click", handlers.onSaveServer);

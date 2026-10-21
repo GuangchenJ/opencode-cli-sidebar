@@ -76,6 +76,14 @@ type L2State = {
   original: string[];
 };
 
+/** 待确认的快捷键冲突：用户选择是否覆盖其他命令的占用。 */
+type PendingConflict = {
+  chord: string;
+  mode: "add" | "replace" | "save";
+  index?: number;
+  conflict: KeymapItem;
+};
+
 let items: KeymapItem[] = [];
 let overrides: Record<string, string> = {};
 let filterMode = "all";
@@ -83,6 +91,7 @@ let searchQuery = "";
 let activeGroup = "general";
 let l2: L2State | null = null;
 let capture: CaptureState | null = null;
+let pendingConflict: PendingConflict | null = null;
 let navScrollLock = false;
 let navScrollUnlockTimer: ReturnType<typeof setTimeout> | null = null;
 /** 打开 L2 并进入录制的那次 click 会冒泡到 document，忽略以免立刻 stopCapture */
@@ -127,25 +136,35 @@ function effChords(id: string): string[] {
   return chordsOf(eff(id));
 }
 
+/** 功能键 F1–F24 统一显示为大写 F；存储值保持小写。 */
+export function formatFKeys(text: string): string {
+  return String(text).replace(
+    /\bf([1-9]|1[0-9]|2[0-4])\b/gi,
+    (match) => match.toUpperCase(),
+  );
+}
+
 function formatKey(key: string): string {
-  return String(key)
-    .replace(/\+/g, " + ")
-    .replace(/\bctrl\b/gi, "Ctrl")
-    .replace(/\balt\b/gi, "Alt")
-    .replace(/\bshift\b/gi, "Shift")
-    .replace(/\bsuper\b/gi, "Super")
-    .replace(/\breturn\b/gi, "Enter")
-    .replace(/\benter\b/gi, "Enter")
-    .replace(/\bescape\b/gi, "Esc")
-    .replace(/\bpageup\b/gi, "PgUp")
-    .replace(/\bpagedown\b/gi, "PgDn")
-    .replace(/\bleft\b/gi, "←")
-    .replace(/\bright\b/gi, "→")
-    .replace(/\bup\b/gi, "↑")
-    .replace(/\bdown\b/gi, "↓")
-    .replace(/\bbackspace\b/gi, "Bksp")
-    .replace(/\bdelete\b/gi, "Del")
-    .trim();
+  return formatFKeys(
+    String(key)
+      .replace(/\+/g, " + ")
+      .replace(/\bctrl\b/gi, "Ctrl")
+      .replace(/\balt\b/gi, "Alt")
+      .replace(/\bshift\b/gi, "Shift")
+      .replace(/\bsuper\b/gi, "Super")
+      .replace(/\breturn\b/gi, "Enter")
+      .replace(/\benter\b/gi, "Enter")
+      .replace(/\bescape\b/gi, "Esc")
+      .replace(/\bpageup\b/gi, "PgUp")
+      .replace(/\bpagedown\b/gi, "PgDn")
+      .replace(/\bleft\b/gi, "←")
+      .replace(/\bright\b/gi, "→")
+      .replace(/\bup\b/gi, "↑")
+      .replace(/\bdown\b/gi, "↓")
+      .replace(/\bbackspace\b/gi, "Bksp")
+      .replace(/\bdelete\b/gi, "Del")
+      .trim(),
+  );
 }
 
 function renderOneChord(chord: string, extraClass = "", extraAttrs = ""): string {
@@ -275,7 +294,7 @@ function renderList(): void {
             <div class="kb-desc">${escapeHtml(item.desc)}</div>
             ${
               mod
-                ? `<div class="kb-default-ghost">${escapeHtml(formatMessage(t("defaultLabel", "Default: {0}"), item.def))}</div>`
+                ? `<div class="kb-default-ghost">${escapeHtml(formatMessage(t("defaultLabel", "Default: {0}"), formatFKeys(item.def)))}</div>`
                 : ""
             }
           </div>
@@ -332,7 +351,7 @@ function renderL2(): void {
   if (defEl) {
     defEl.textContent = formatMessage(
       t("defaultLabel", "Default: {0}"),
-      item.def,
+      formatFKeys(item.def),
     );
   }
   if (leaderEl) {
@@ -354,8 +373,11 @@ function renderL2(): void {
     '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3.5h3v1M5 4.5l.5 8h5l.5-8M6.8 7v3.2M9.2 7v3.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   const msgEl = $("#km-l2-msg");
-  const showUnsaved = Boolean(msgEl?.classList.contains("is-unsaved"));
-  const showAdd = !capture && !showUnsaved;
+  const showPrompt = Boolean(
+    msgEl?.classList.contains("is-unsaved") ||
+      msgEl?.classList.contains("is-conflict"),
+  );
+  const showAdd = !capture && !showPrompt;
 
   const showCaptureHint = (isCap: boolean): string =>
     isCap
@@ -429,21 +451,107 @@ function render(): void {
 
 /** L2 内联错误/警告（不使用 toast）。 */
 function setL2Msg(message: string, kind: "error" | "warning"): void {
+  pendingConflict = null;
   const el = $("#km-l2-msg");
   if (!el) return;
   el.textContent = message;
-  el.classList.remove("hidden", "error", "warning", "is-unsaved");
+  el.classList.remove("hidden", "error", "warning", "is-unsaved", "is-conflict");
   el.classList.add(kind);
   renderL2();
 }
 
 function clearL2Msg(): void {
+  pendingConflict = null;
   const el = $("#km-l2-msg");
   if (!el) return;
   el.textContent = "";
   el.classList.add("hidden");
-  el.classList.remove("error", "warning", "is-unsaved");
+  el.classList.remove("error", "warning", "is-unsaved", "is-conflict");
   renderL2();
+}
+
+/**
+ * 冲突提示：说明该按键已被哪个命令占用，由用户选择是否覆盖。
+ * 覆盖即从对方命令的绑定列表中移除该按键。
+ */
+function showConflictPrompt(pending: PendingConflict): void {
+  pendingConflict = pending;
+  const el = $("#km-l2-msg");
+  if (!el) return;
+  el.classList.remove("hidden", "error", "warning", "is-unsaved");
+  el.classList.add("warning", "is-conflict");
+  el.innerHTML = `
+    <div class="km-unsaved-row">
+      <div class="km-unsaved-text">${escapeHtml(
+        formatMessage(
+          t(
+            "conflictOverwrite",
+            '{0} is already used by "{1}". Overwrite it?',
+          ),
+          formatKey(pending.chord),
+          pending.conflict.title,
+        ),
+      )}</div>
+      <div class="km-unsaved-actions">
+        <button type="button" class="km-btn" id="km-l2-conflict-cancel">${t(
+          "cancel",
+          "Cancel",
+        )}</button>
+        <button type="button" class="km-btn primary" id="km-l2-conflict-overwrite">${t(
+          "overwrite",
+          "Overwrite",
+        )}</button>
+      </div>
+    </div>`;
+  el.querySelector("#km-l2-conflict-cancel")?.addEventListener("click", () => {
+    clearL2Msg();
+  });
+  el.querySelector("#km-l2-conflict-overwrite")?.addEventListener(
+    "click",
+    () => resolveConflictOverwrite(),
+  );
+}
+
+/** 把某个 chord 从另一命令的绑定中移除并落盘。 */
+function unbindChordFrom(item: KeymapItem, chord: string): void {
+  const n = normChord(chord);
+  const remaining = effChords(item.id).filter((c) => normChord(c) !== n);
+  const persisted = toPersistedValue(remaining, item.def);
+  if (persisted === undefined) {
+    delete overrides[item.id];
+  } else {
+    overrides[item.id] = persisted;
+  }
+  postMessage({ type: "saveKeybind", id: item.id, chords: remaining });
+}
+
+/** 用户确认覆盖：对方命令让出该按键，再继续应用/保存当前修改。 */
+function resolveConflictOverwrite(): void {
+  const pending = pendingConflict;
+  if (!pending || !l2) {
+    clearL2Msg();
+    return;
+  }
+  pendingConflict = null;
+  unbindChordFrom(pending.conflict, pending.chord);
+  render();
+  if (pending.mode === "save") {
+    clearL2Msg();
+    closeL2(true);
+    return;
+  }
+  const applied = applyCapturedChord(
+    l2.id,
+    l2.draft,
+    pending.chord,
+    pending.mode,
+    pending.index,
+  );
+  if (applied) {
+    clearL2Msg();
+  } else {
+    renderL2();
+  }
 }
 
 export function openKeymapModal(): void {
@@ -657,10 +765,9 @@ function closeL2(save: boolean): void {
       const pending = capture.chord;
       const mode = capture.mode;
       const index = capture.index;
+      // 冲突时改为弹出覆盖确认，不恢复录制，避免按键继续覆盖提示
       capture = null;
       if (!applyCapturedChord(l2.id, l2.draft, pending, mode, index)) {
-        // 冲突等：保留弹窗，不关闭
-        capture = { mode, index, chord: pending };
         renderL2();
         return;
       }
@@ -668,22 +775,12 @@ function closeL2(save: boolean): void {
       stopCapture();
     }
 
-    // 保存前校验草稿全部 chord，有冲突则提示并保持弹窗
+    // 保存前校验草稿全部 chord，冲突时询问是否覆盖对方绑定
     const id = l2.id;
     for (const chord of l2.draft) {
       const conflict = findConflict(id, chord);
       if (conflict) {
-        setL2Msg(
-          formatMessage(
-            t(
-              "cannotSaveConflict",
-              'Cannot save: {0} conflicts with "{1}". Change it before saving.',
-            ),
-            formatKey(chord),
-            conflict,
-          ),
-          "error",
-        );
+        showConflictPrompt({ chord, mode: "save", conflict });
         renderL2();
         return;
       }
@@ -718,14 +815,7 @@ function applyCapturedChord(
 ): boolean {
   const conflict = findConflict(id, chord);
   if (conflict) {
-    setL2Msg(
-      formatMessage(
-        t("conflictChord", 'Conflict: {0} is already used by "{1}"'),
-        formatKey(chord),
-        conflict,
-      ),
-      "error",
-    );
+    showConflictPrompt({ chord, mode, index, conflict });
     return false;
   }
   const list = draft.slice();
@@ -768,6 +858,8 @@ function commitChord(chord: string): void {
 }
 
 function startCapture(mode: "add" | "replace", index?: number): void {
+  // 重新录制时丢弃上一轮冲突提示，避免与录制态叠加
+  clearL2Msg();
   capture = { mode, index, pendingLeader: false };
   renderL2();
 }
@@ -778,12 +870,12 @@ function stopCapture(): void {
   renderL2();
 }
 
-function findConflict(id: string, chord: string): string | undefined {
+function findConflict(id: string, chord: string): KeymapItem | undefined {
   const n = normChord(chord);
   for (const other of items) {
     if (other.id === id) continue;
     if (effChords(other.id).some((c) => normChord(c) === n)) {
-      return other.title;
+      return other;
     }
   }
   return undefined;
@@ -1016,7 +1108,7 @@ function handleSearchCaptureKey(e: KeyboardEvent): void {
     searchCapture.leaderTimer = setTimeout(() => {
       if (searchCapture?.pendingLeader) {
         searchCapture.pendingLeader = false;
-        submit(chord);
+        submit(formatFKeys(chord));
       }
     }, 1500);
     return;
@@ -1024,10 +1116,10 @@ function handleSearchCaptureKey(e: KeyboardEvent): void {
   if (searchCapture.pendingLeader) {
     if (searchCapture.leaderTimer) clearTimeout(searchCapture.leaderTimer);
     searchCapture.pendingLeader = false;
-    submit(`<leader>${chord}`);
+    submit(`<leader>${formatFKeys(chord)}`);
     return;
   }
-  submit(chord);
+  submit(formatFKeys(chord));
 }
 
 function scrollToGroup(key: string): void {
@@ -1254,6 +1346,11 @@ export function initKeymapUi(): void {
         return;
       }
       handleCaptureKey(e);
+      return;
+    }
+    if (pendingConflict && e.key === "Escape") {
+      e.preventDefault();
+      clearL2Msg();
       return;
     }
     if (e.key === "Escape") {

@@ -138,10 +138,10 @@ export const keymapL10nStrings: Record<string, string> = {
   keepEditing: l10n.t("Keep editing"),
   discardChanges: l10n.t("Discard changes"),
   duplicateChord: l10n.t("This command already has {0}"),
-  conflictChord: l10n.t('Conflict: {0} is already used by "{1}"'),
-  cannotSaveConflict: l10n.t(
-    'Cannot save: {0} conflicts with "{1}". Change it before saving.',
+  conflictOverwrite: l10n.t(
+    '{0} is already used by "{1}". Overwrite it?',
   ),
+  overwrite: l10n.t("Overwrite"),
   resetConfirm: l10n.t(
     'Reset "{0}" to its default bindings? Your customization will be removed.',
   ),

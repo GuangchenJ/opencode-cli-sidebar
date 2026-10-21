@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
-import { describe, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { describe, beforeAll, beforeEach, afterEach, expect, it, vi } from "vitest";
+import type { KeymapItem } from "../../types";
 import {
+  applyKeymapData,
+  closeKeymapModal,
   eventToChord,
+  formatFKeys,
   initKeymapUi,
   matchesKeyText,
   normalizeChordText,
@@ -43,7 +47,24 @@ const SEARCH_DOM_FIXTURE = `
     <span class="km-stats" id="km-stats"></span>
   </div>
 </div>
+<div class="km-l2-overlay hidden" id="km-l2-overlay">
+  <div class="km-l2-modal">
+    <span class="km-l2-id" id="km-l2-id"></span>
+    <div class="km-l2-desc" id="km-l2-desc"></div>
+    <div class="km-l2-leader" id="km-l2-leader"></div>
+    <div class="km-l2-default" id="km-l2-default"></div>
+    <div id="km-l2-chords"></div>
+    <div class="km-l2-msg hidden" id="km-l2-msg" role="alert"></div>
+    <button type="button" class="km-btn primary" id="km-l2-save">Save</button>
+  </div>
+</div>
 <div class="km-confirm-overlay hidden" id="km-confirm-overlay"></div>`;
+
+beforeAll(() => {
+  document.body.innerHTML = SEARCH_DOM_FIXTURE;
+  installTrustedKeydownFlip();
+  initKeymapUi();
+});
 
 interface KeydownInit extends KeyboardEventInit {
   code?: string;
@@ -224,9 +245,6 @@ describe("search recording", () => {
   let clearBtn: HTMLButtonElement;
 
   beforeAll(() => {
-    document.body.innerHTML = SEARCH_DOM_FIXTURE;
-    installTrustedKeydownFlip();
-    initKeymapUi();
     input = document.querySelector("#km-search") as HTMLInputElement;
     recordBtn = document.querySelector(
       "#km-search-record",
@@ -267,6 +285,13 @@ describe("search recording", () => {
     expect(recordBtn.getAttribute("aria-pressed")).toBe("false");
     expect(input.readOnly).toBe(false);
     expect(clearBtn.classList.contains("hidden")).toBe(false);
+  });
+
+  it("shows function keys with an uppercase F in the search box", () => {
+    recordBtn.click();
+    press({ key: "F5", code: "F5" });
+    expect(input.value).toBe("F5");
+    expect(recordBtn.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("ignores modifier-only keys while recording", () => {
@@ -320,5 +345,117 @@ describe("search recording", () => {
     expect(recordBtn.getAttribute("aria-pressed")).toBe("false");
     expect(clearBtn.classList.contains("hidden")).toBe(true);
     expect(document.activeElement).toBe(input);
+  });
+});
+
+describe("formatFKeys", () => {
+  it("uppercases function keys and keeps other keys untouched", () => {
+    expect(formatFKeys("f2")).toBe("F2");
+    expect(formatFKeys("shift+f12")).toBe("shift+F12");
+    expect(formatFKeys("<leader>f1")).toBe("<leader>F1");
+    expect(formatFKeys("ctrl+f")).toBe("ctrl+f");
+    expect(formatFKeys("none")).toBe("none");
+  });
+});
+
+describe("shortcut conflict overwrite", () => {
+  const ITEMS: KeymapItem[] = [
+    {
+      id: "model.cycle_recent",
+      group: "model",
+      title: "Recent model",
+      desc: "Switch to a recently used model",
+      def: "f2",
+    },
+    {
+      id: "input.clear",
+      group: "input",
+      title: "Clear input",
+      desc: "Clear the prompt input",
+      def: "ctrl+k",
+    },
+  ];
+
+  const load = (): void => {
+    applyKeymapData({
+      type: "keymapData",
+      items: ITEMS.map((item) => ({ ...item })),
+      overrides: {},
+      configPath: "cli.json",
+    });
+  };
+
+  beforeEach(() => {
+    openKeymapModal();
+    load();
+    // openKeymapModal 自身会请求数据，只关注之后的保存消息
+    mockPostMessage.mockClear();
+  });
+
+  afterEach(() => {
+    closeKeymapModal();
+  });
+
+  it("renders function keys with an uppercase F", () => {
+    const row = document.querySelector(
+      '.kb-row[data-id="model.cycle_recent"]',
+    ) as HTMLElement;
+    expect(row.textContent).toContain("F2");
+    expect(row.textContent).not.toContain("f2");
+  });
+
+  it("asks before overwriting another command's chord", () => {
+    (
+      document.querySelector(
+        '[data-act="edit-chord"][data-id="input.clear"]',
+      ) as HTMLElement
+    ).click();
+    document.dispatchEvent(keydown({ key: "F2", code: "F2" }));
+
+    const msg = document.querySelector("#km-l2-msg") as HTMLElement;
+    expect(msg.classList.contains("is-conflict")).toBe(true);
+    expect(msg.textContent).toContain("F2");
+    expect(msg.textContent).toContain("Recent model");
+    expect(msg.textContent).toContain("Overwrite");
+    // 未确认前不写入任何绑定
+    expect(mockPostMessage).not.toHaveBeenCalled();
+
+    (
+      document.querySelector("#km-l2-conflict-overwrite") as HTMLElement
+    ).click();
+
+    // 对方命令让出 F2，当前命令草稿写入 F2
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      type: "saveKeybind",
+      id: "model.cycle_recent",
+      chords: [],
+    });
+    const recentRow = document.querySelector(
+      '.kb-row[data-id="model.cycle_recent"]',
+    ) as HTMLElement;
+    expect(recentRow.textContent).toContain("Unbound");
+
+    (document.querySelector("#km-l2-save") as HTMLElement).click();
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      type: "saveKeybind",
+      id: "input.clear",
+      chords: ["f2"],
+    });
+  });
+
+  it("keeps the other binding when overwrite is cancelled", () => {
+    (
+      document.querySelector(
+        '[data-act="edit-chord"][data-id="input.clear"]',
+      ) as HTMLElement
+    ).click();
+    document.dispatchEvent(keydown({ key: "F2", code: "F2" }));
+    (
+      document.querySelector("#km-l2-conflict-cancel") as HTMLElement
+    ).click();
+
+    const msg = document.querySelector("#km-l2-msg") as HTMLElement;
+    expect(msg.classList.contains("hidden")).toBe(true);
+    expect(mockPostMessage).not.toHaveBeenCalled();
   });
 });

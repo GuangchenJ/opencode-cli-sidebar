@@ -1,15 +1,16 @@
 /**
  * Toolbar status-icon hover tooltip: a quiet one-line status preview
- * anchored under the icon, with a dismiss (x) action that hides the
- * current status icon until its kind changes.
+ * anchored under the icon, with two actions: jump to the matching panel
+ * section, and dismiss the status icon until its kind changes.
  *
  * Opens after a short hover delay, bridges the anchor gap so the pointer
- * can reach the dismiss button, and closes on a grace-period mouseleave,
- * Escape, or when the popover opens (icon click) — the two never show
- * at the same time.
+ * can reach the actions, and closes on a grace-period mouseleave,
+ * Escape, or when the panel opens.
  */
-import { popoverStatus } from "./popover";
+import { paneForStatus, type SyncPaneName } from "./panel";
 import type { SyncUiState } from "./state";
+import { syncStatusLine } from "./status";
+import { st } from "./strings";
 
 function el<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
@@ -21,6 +22,20 @@ const CLOSE_GRACE_MS = 200;
 let tipOpen = false;
 let openTimer: ReturnType<typeof setTimeout> | null = null;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Action label matches the section the click lands on. */
+function openLabel(pane: SyncPaneName): string {
+  switch (pane) {
+    case "items":
+      return st.tipOpenItems;
+    case "conflict":
+      return st.tipOpenConflict;
+    case "log":
+      return st.tipOpenLog;
+    default:
+      return st.actOpenPanel;
+  }
+}
 
 function cancelOpenTimer(): void {
   if (openTimer) {
@@ -36,8 +51,8 @@ function cancelCloseTimer(): void {
   }
 }
 
-/** Fixed-position anchor under the icon; dav-pop cannot be reused
- *  verbatim because the sync shell renders outside the toolbar. */
+/** Fixed-position anchor under the icon; the shell renders outside the
+ *  toolbar, so a CSS-anchored popup cannot be reused here. */
 function openTip(): void {
   const anchor = document.getElementById("btn-dav-sync-status");
   const tip = document.getElementById("dav-sync-tip");
@@ -66,22 +81,31 @@ export function closeSyncTooltip(): void {
   tipOpen = false;
 }
 
-/** Refresh the status line from state; called on every sync render so
- *  a hover started before a delta still shows fresh text. */
+/** Refresh the status line and the jump action from state; called on
+ *  every sync render so a hover started before a delta still shows
+ *  fresh text and target. */
 export function updateSyncTooltip(state: SyncUiState): void {
   const ic = document.getElementById("dav-sync-tip-ic");
   const text = document.getElementById("dav-sync-tip-text");
   if (!ic || !text) {
     return;
   }
-  const content = popoverStatus(state);
+  const content = syncStatusLine(state);
   ic.innerHTML = content.iconHtml;
   ic.style.color = content.color;
   text.textContent = content.text;
+
+  const go = document.getElementById("dav-sync-tip-go");
+  if (go) {
+    const label = openLabel(paneForStatus(state));
+    go.textContent = `${label} ›`;
+    go.setAttribute("aria-label", label);
+  }
 }
 
 /** Wire tooltip events; called from initSyncUi. */
 export function initSyncTooltip(handlers: {
+  onOpen: () => void;
   onDismiss: () => void;
 }): void {
   const anchor = el("btn-dav-sync-status");
@@ -111,11 +135,17 @@ export function initSyncTooltip(handlers: {
   anchor.addEventListener("mouseenter", scheduleOpen);
   anchor.addEventListener("mouseleave", scheduleClose);
   // Bridge: hovering the tooltip itself cancels the pending close so
-  // the pointer can travel the gap to the dismiss button.
+  // the pointer can travel the gap to the actions.
   tip.addEventListener("mouseenter", cancelCloseTimer);
   tip.addEventListener("mouseleave", scheduleClose);
-  // Clicking the icon opens the popover: the tooltip must never compete.
+  // Clicking the icon opens the panel: the tooltip must never compete.
   anchor.addEventListener("click", closeSyncTooltip);
+
+  el("dav-sync-tip-go").addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeSyncTooltip();
+    handlers.onOpen();
+  });
 
   el("dav-sync-tip-close").addEventListener("click", (event) => {
     event.stopPropagation();

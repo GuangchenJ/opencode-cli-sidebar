@@ -99,18 +99,11 @@ export interface SyncIconInfo {
 }
 
 /**
- * Visibility: syncing / error / paused states, or a non-zero pending /
- * conflict count (which may arrive while state stays "idle").
- * Unconfigured and plain idle never show. The `showStatusIcon` server
- * setting is the master switch.
+ * Status kind by priority, ignoring the `showStatusIcon` master switch and
+ * the unconfigured state: the status line and the panel jump still need a
+ * target when the toolbar icon itself is hidden.
  */
-export function syncIconInfo(s: SyncUiState): SyncIconInfo | null {
-  if (!s.settings?.showStatusIcon) {
-    return null;
-  }
-  if (s.state === "unconfigured") {
-    return null;
-  }
+export function statusIconFor(s: SyncUiState): SyncIconInfo | null {
   if (s.conflictCount > 0) {
     return { kind: "conflict", count: s.conflictCount };
   }
@@ -127,4 +120,20 @@ export function syncIconInfo(s: SyncUiState): SyncIconInfo | null {
     return { kind: "pending", count: s.pendingCount };
   }
   return null;
+}
+
+/**
+ * Visibility: syncing / error / paused states, or a non-zero pending /
+ * conflict count (which may arrive while state stays "idle").
+ * Unconfigured and plain idle never show. The `showStatusIcon` server
+ * setting is the master switch.
+ */
+export function syncIconInfo(s: SyncUiState): SyncIconInfo | null {
+  if (!s.settings?.showStatusIcon) {
+    return null;
+  }
+  if (s.state === "unconfigured") {
+    return null;
+  }
+  return statusIconFor(s);
 }

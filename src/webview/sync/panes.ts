@@ -382,7 +382,7 @@ export function renderLog(state: SyncUiState): void {
   }
 }
 
-/** Footer / popover button label with the refresh glyph. */
+/** Footer / panel sync button label with the refresh glyph. */
 export function syncNowButtonLabel(): string {
   return `${SYNC_ICONS.refresh}${st.actSyncNow}`;
 }

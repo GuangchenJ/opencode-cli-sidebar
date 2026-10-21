@@ -40,8 +40,7 @@ export const st = {
   iconError: syncT("iconError", "Sync error"),
   iconPaused: syncT("iconPaused", "Auto sync paused"),
 
-  // ── Popover (L1) ──
-  popAria: syncT("popAria", "Config sync status"),
+  // ── Status line (tooltip) ──
   stSyncing: syncT("stSyncing", "Syncing…"),
   stIdle: syncT("stIdle", "Sync is enabled"),
   stPending: (n: number) =>
@@ -57,9 +56,10 @@ export const st = {
   manualMode: syncT("manualMode", "Manual-only mode"),
   pausedBadge: syncT("pausedBadge", "Auto sync paused after repeated errors"),
   actSyncNow: syncT("actSyncNow", "Sync now"),
-  actResolve: (n: number) =>
-    syncT("actResolve", "Resolve {0} conflict(s)", n),
   actOpenPanel: syncT("actOpenPanel", "Open sync panel"),
+  tipOpenItems: syncT("tipOpenItems", "View sync items"),
+  tipOpenConflict: syncT("tipOpenConflict", "Resolve conflicts"),
+  tipOpenLog: syncT("tipOpenLog", "View log"),
 
   // ── Panel header ──
   hdrPending: (n: number) => syncT("hdrPending", "{0} pending", n),

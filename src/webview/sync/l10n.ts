@@ -20,8 +20,12 @@ export const syncL10nStrings: Record<string, string> = {
   iconError: l10n.t("Sync error"),
   iconPaused: l10n.t("Auto sync paused"),
 
-  // Popover
-  popAria: l10n.t("Config sync status"),
+  // Tooltip actions
+  tipOpenItems: l10n.t("View sync items"),
+  tipOpenConflict: l10n.t("Resolve conflicts"),
+  tipOpenLog: l10n.t("View log"),
+
+  // Status line / panel actions
   stSyncing: l10n.t("Syncing…"),
   stIdle: l10n.t("Sync is enabled"),
   stPending: l10n.t("{0} file(s) pending upload"),
@@ -34,7 +38,6 @@ export const syncL10nStrings: Record<string, string> = {
   manualMode: l10n.t("Manual-only mode"),
   pausedBadge: l10n.t("Auto sync paused after repeated errors"),
   actSyncNow: l10n.t("Sync now"),
-  actResolve: l10n.t("Resolve {0} conflict(s)"),
   actOpenPanel: l10n.t("Open sync panel"),
 
   // Panel header modes
@@ -110,10 +113,8 @@ export const syncL10nStrings: Record<string, string> = {
 };
 
 export const syncShellStrings: SyncShellStrings = {
-  popAria: l10n.t("Config sync status"),
   tipDismiss: l10n.t("Hide the status icon for now"),
   actSyncNow: l10n.t("Sync now"),
-  actOpenPanel: l10n.t("Open sync panel"),
   panelTitle: l10n.t("OpenCode config sync"),
   panelIntro: l10n.t(
     "Sync OpenCode configuration files across devices via your WebDAV server.",

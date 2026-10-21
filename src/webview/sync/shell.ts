@@ -1,5 +1,5 @@
 /**
- * Pure HTML shell for the WebDAV sync UI (popover + panel).
+ * Pure HTML shell for the WebDAV sync UI (tooltip + panel).
  *
  * No imports: the extension host (terminal/html.ts via sync/markup.ts)
  * passes a localized string dict; tests pass their own so the runtime
@@ -7,10 +7,8 @@
  */
 
 export interface SyncShellStrings {
-  popAria: string;
   tipDismiss: string;
   actSyncNow: string;
-  actOpenPanel: string;
   panelTitle: string;
   panelAria: string;
   closeTitle: string;
@@ -78,18 +76,8 @@ export function renderSyncShell(d: SyncShellStrings): string {
 <div class="dav-tip hidden" id="dav-sync-tip" role="tooltip">
   <span class="dav-tip-ic" id="dav-sync-tip-ic"></span>
   <span class="dav-tip-text" id="dav-sync-tip-text"></span>
+  <button type="button" class="dav-tip-go" id="dav-sync-tip-go"></button>
   <button type="button" class="dav-tip-close" id="dav-sync-tip-close" aria-label="${d.tipDismiss}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-</div>
-<div class="dav-pop hidden" id="dav-pop" role="dialog" aria-label="${d.popAria}">
-  <div class="dav-pop-row"><span class="dav-pop-ic" id="dav-pop-ic"></span><b id="dav-pop-text"></b></div>
-  <div class="dav-pop-sub" id="dav-pop-sub"></div>
-  <div class="dav-pop-sub dav-paused hidden" id="dav-pop-paused"></div>
-  <div class="dav-pop-hr" aria-hidden="true"></div>
-  <div class="dav-act-row">
-    <button type="button" class="dav-btn" id="dav-pop-sync">${d.actSyncNow}</button>
-    <button type="button" class="dav-btn dav-btn--secondary hidden" id="dav-pop-conflict"></button>
-    <button type="button" class="dav-btn dav-btn--link" id="dav-pop-panel">${d.actOpenPanel} ›</button>
-  </div>
 </div>
 <div class="dav-overlay hidden" id="dav-overlay">
   <div class="dav-modal" id="dav-modal" role="dialog" aria-modal="true" aria-label="${d.panelAria}">

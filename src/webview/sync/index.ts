@@ -2,8 +2,9 @@
  * WebDAV config sync UI (webview side).
  *
  * Browser-only; all host I/O goes through WebviewMessage. Layers:
- * L0 toolbar status icon + cloud entry button, L1 anchored popover,
- * L2 full panel (km-modal pattern) with server/items/conflicts/history/log.
+ * L0 toolbar status icon + cloud entry button, L1 hover tooltip with a
+ * section jump, L2 full panel (km-modal pattern) with
+ * server/items/conflicts/history/log.
  */
 import { postMessage } from "../shared/vscode-api";
 import type {
@@ -20,11 +21,6 @@ import {
   type SyncUiState,
 } from "./state";
 import { st } from "./strings";
-import {
-  closeSyncPopover,
-  initPopover,
-  renderPopover,
-} from "./popover";
 import { closeSyncTooltip, initSyncTooltip, updateSyncTooltip } from "./tooltip";
 import type { SyncPaneName } from "./panel";
 import { clearServerPassword, isServerFormDirty } from "./panes";
@@ -34,6 +30,7 @@ import {
   closeSyncPanel,
   initPanel,
   openSyncPanel,
+  paneForStatus,
   renderPanel,
   renderSaveDirty,
   setSaveResult,
@@ -92,9 +89,9 @@ function showAddItemError(
 
 // ── Toolbar status icon (L0) ──
 
-/** Dismissed icon kind (tooltip ✕): pure webview-side gating, in-memory
- *  only. The icon stays hidden while syncIconInfo keeps returning the
- *  same kind; a different kind or a cleared status resets it. */
+/** Dismissed icon kind (tooltip ✕ or icon click): pure webview-side gating,
+ *  in-memory only. The icon stays hidden while syncIconInfo keeps returning
+ *  the same kind; a different kind or a cleared status resets it. */
 let dismissedIconKind: SyncIconKind | null = null;
 
 const ICON_KIND_STATE: Record<string, string> = {
@@ -122,9 +119,18 @@ function iconLabel(info: NonNullable<ReturnType<typeof syncIconInfo>>): string {
 
 function hideStatusIcon(btn: HTMLElement): void {
   btn.classList.add("hidden");
-  btn.setAttribute("aria-expanded", "false");
-  closeSyncPopover();
   closeSyncTooltip();
+}
+
+/** Acknowledge the current status: hide the icon until its kind changes
+ *  or the status clears. Used by both the icon click and the tooltip ✕. */
+function dismissStatusIcon(): void {
+  const info = syncIconInfo(state);
+  if (!info) {
+    return;
+  }
+  dismissedIconKind = info.kind;
+  render();
 }
 
 function renderIcon(): void {
@@ -185,12 +191,10 @@ function showNotice(text: string): void {
 
 function render(): void {
   renderIcon();
-  renderPopover(state);
   updateSyncTooltip(state);
   renderPanel(state);
   renderSaveDirty(state);
   if (noticeText) {
-    el("dav-pop-sub").textContent = noticeText;
     el("dav-foot-st").textContent = noticeText;
   }
 }
@@ -307,20 +311,17 @@ export function initSyncUi(): void {
   }
   initialized = true;
 
-  initPopover({
-    onSyncNow: () => postMessage({ type: "syncWebdavNow" }),
-    onOpenPanel: () => openSyncPanel(defaultPanelPane()),
-    onOpenConflicts: () => openSyncPanel("conflict"),
+  // Status icon click goes straight to the panel section that matches the
+  // current status, and acknowledges the status so the icon hides until
+  // the kind changes or clears.
+  document.getElementById("btn-dav-sync-status")?.addEventListener("click", () => {
+    dismissStatusIcon();
+    openSyncPanel(paneForStatus(state));
   });
 
   initSyncTooltip({
-    onDismiss: () => {
-      const info = syncIconInfo(state);
-      if (info) {
-        dismissedIconKind = info.kind;
-      }
-      render();
-    },
+    onOpen: () => openSyncPanel(paneForStatus(state)),
+    onDismiss: dismissStatusIcon,
   });
 
   initPanel({

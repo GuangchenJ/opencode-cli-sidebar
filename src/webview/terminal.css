@@ -2009,9 +2009,9 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
   font-weight: 600;
 }
 
-/* Toolbar icon hover tooltip (dav-pop family; JS-anchored fixed because
-   the sync shell renders outside the toolbar). Quiet one-line status
-   preview with a dismiss action; never shown together with the popover. */
+/* Toolbar icon hover tooltip (JS-anchored fixed because the sync shell
+   renders outside the toolbar). Quiet one-line status preview with a
+   section jump and a dismiss action. */
 .dav-tip {
   position: fixed; z-index: 2100;
   display: flex; align-items: center; gap: 8px;
@@ -2025,30 +2025,19 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-tip.hidden { display: none; }
 .dav-tip-ic { display: inline-flex; }
 .dav-tip-text { color: var(--vscode-foreground, #d4d4d4); }
+.dav-tip-go {
+  display: inline-flex; align-items: center; white-space: nowrap;
+  border: none; border-radius: 3px; padding: 1px 5px;
+  background: none; color: var(--vscode-textLink-foreground, var(--vscode-focusBorder, #007fd4));
+  font-size: 11px; font-family: inherit; cursor: pointer;
+}
+.dav-tip-go:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); }
 .dav-tip-close {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; border: none; border-radius: 4px;
   background: none; color: var(--vscode-descriptionForeground, #8a8a8a); cursor: pointer;
 }
 .dav-tip-close:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); color: var(--vscode-foreground, #d4d4d4); }
-
-/* L1: popover (settings-dropdown pattern) */
-.dav-pop {
-  position: absolute; top: calc(100% + 6px); left: 6px; z-index: 2000;
-  background: var(--vscode-dropdown-background, #252526);
-  border: 1px solid var(--vscode-dropdown-border, #454545);
-  border-radius: 4px; box-shadow: 0 4px 12px var(--vscode-widget-shadow, rgba(0,0,0,0.35));
-  padding: 8px 10px; font-size: 11px; font-family: var(--vscode-font-family);
-  color: var(--vscode-dropdown-foreground, #cccccc);
-  width: max-content; max-width: calc(100vw - 16px);
-}
-.dav-pop.hidden { display: none; }
-.dav-pop-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.dav-pop-ic { display: inline-flex; }
-.dav-pop-sub { color: var(--vscode-descriptionForeground, #8a8a8a); margin: 3px 0 0 18px; }
-.dav-paused { color: var(--vscode-errorForeground, #f87171); }
-.dav-pop-hr { border: none; border-top: 1px solid var(--vscode-panel-border, #2e2e2e); margin: 8px -10px; }
-.dav-act-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* L2: overlay + modal (km-modal pattern) */
 .dav-overlay {
@@ -2271,6 +2260,7 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-conflict-path { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; margin-bottom: 8px; word-break: break-all; }
 .dav-conflict-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); margin-bottom: 10px; }
 .dav-conflict-meta b { color: var(--vscode-foreground, #d4d4d4); font-weight: 600; }
+.dav-act-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .dav-empty { padding: 26px 10px; text-align: center; color: var(--vscode-descriptionForeground, #8a8a8a); font-size: 12px; }
 
 /* History pane: column-aligned grid. The trigger column is 64px: the
