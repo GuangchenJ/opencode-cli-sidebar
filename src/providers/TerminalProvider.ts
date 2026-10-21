@@ -360,7 +360,7 @@ export class TerminalProvider
 
     const panel = vscode.window.createWebviewPanel(
       TerminalProvider.panelViewType,
-      l10n.t("Opencode CLI Sidebar"),
+      l10n.t("OpenCode CLI Sidebar"),
       vscode.ViewColumn.Beside,
       this.getEditorPanelOptions(),
     );
@@ -1333,7 +1333,8 @@ export class TerminalProvider
     }
   }
 
-  private postWebviewMessage(message: unknown): void {
+  /** Public so lifecycle wiring (config sync pushes) can post host messages. */
+  postWebviewMessage(message: unknown): void {
     if (this.isTerminalOutputHostMessage(message)) {
       this.dataThrottleService.push(message.data);
       return;

@@ -1,4 +1,4 @@
-# Opencode CLI Sidebar
+# OpenCode CLI Sidebar
 
 [![Visual Studio Marketplace](https://vsmarketplacebadges.dev/version-short/sagez.opencode-cli-sidebar.svg)](https://marketplace.visualstudio.com/items?itemName=sagez.opencode-cli-sidebar)
 
@@ -8,7 +8,7 @@ Embed the OpenCode AI coding agent in the VS Code sidebar with full terminal man
 
 Unofficial third-party extension, not affiliated with the OpenCode team.
 
-![Opencode CLI Sidebar screenshot](screenshot/screenshot.webp)
+![OpenCode CLI Sidebar screenshot](screenshot/screenshot.webp)
 
 ## Features
 
@@ -47,7 +47,7 @@ The extension uses a hybrid communication approach:
 
 ## Usage
 
-1. Click the Opencode CLI Sidebar icon in the Activity Bar (sidebar)
+1. Click the OpenCode CLI Sidebar icon in the Activity Bar (sidebar)
 2. The terminal automatically starts when the view is activated
 3. Interact with OpenCode directly in the sidebar
 
@@ -55,9 +55,9 @@ The extension uses a hybrid communication approach:
 
 ### Basic Commands
 
-- **Opencode CLI Sidebar: Start OpenCode** - Manually start OpenCode
-- **Opencode CLI Sidebar: Paste** - Paste text into the terminal
-- **Opencode CLI Sidebar: Focus Terminal** - Focus the sidebar terminal
+- **OpenCode CLI Sidebar: Start OpenCode** - Manually start OpenCode
+- **OpenCode CLI Sidebar: Paste** - Paste text into the terminal
+- **OpenCode CLI Sidebar: Focus Terminal** - Focus the sidebar terminal
 
 ### File Reference Commands
 
@@ -109,7 +109,7 @@ When the running CLI is **OpenCode v2** (major version ≥ 2), a keymap icon app
 Under OpenCode v2, the extension can update the OpenCode CLI from the sidebar.
 
 - **Auto check**: checks the official npm registry (falling back to the npmmirror and Tencent npm mirrors) in the background shortly after activation and then every `update.checkIntervalHours` hours; silent unless an update is found
-- **Manual check**: run the `Opencode CLI Sidebar: Check for OpenCode Updates` command from the Command Palette, or use the check item in the settings menu
+- **Manual check**: run the `OpenCode CLI Sidebar: Check for OpenCode Updates` command from the Command Palette, or use the check item in the settings menu
 - **Version badge**: when an update is available, the toolbar version pill becomes the update entry; clicking it opens a method popover (curl/npm/pnpm/bun/yarn/vp/brew, detected and last-used methods are marked)
 - **Progress and restart**: updates run without stopping your session; after success the card offers restarting the terminal onto the new version
 - **nvm handling**: on nvm-windows the required `reshim` runs automatically, and nvm firewall blocks are trusted and retried automatically; if the automatic fix fails, the commands to run manually are shown

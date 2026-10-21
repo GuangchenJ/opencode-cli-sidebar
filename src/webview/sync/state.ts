@@ -1,0 +1,130 @@
+import type {
+  WebDavConflictEntry,
+  WebDavHistoryEntry,
+  WebDavSyncSettings,
+  WebDavSyncItemUi,
+  WebDavSyncSnapshot,
+  WebDavSyncState,
+  WebDavSyncStatusDelta,
+} from "../../types";
+
+/** Merged webview-side view of the sync feature. */
+export interface SyncUiState {
+  state: WebDavSyncState;
+  pendingCount: number;
+  conflictCount: number;
+  lastSyncAt?: number;
+  /** Host-localized relative label, e.g. "3 min ago". */
+  lastSyncLabel?: string;
+  autoSyncPaused: boolean;
+  settings?: WebDavSyncSettings;
+  items: WebDavSyncItemUi[];
+  excludes: string[];
+  conflicts: WebDavConflictEntry[];
+  history: WebDavHistoryEntry[];
+  logLines: string[];
+}
+
+export function initialSyncUiState(): SyncUiState {
+  return {
+    state: "unconfigured",
+    pendingCount: 0,
+    conflictCount: 0,
+    autoSyncPaused: false,
+    items: [],
+    excludes: [],
+    conflicts: [],
+    history: [],
+    logLines: [],
+  };
+}
+
+export function mergeSnapshot(
+  prev: SyncUiState,
+  snapshot: WebDavSyncSnapshot,
+): SyncUiState {
+  return {
+    state: snapshot.state,
+    pendingCount: snapshot.pendingCount,
+    conflictCount: snapshot.conflictCount,
+    lastSyncAt: snapshot.lastSyncAt,
+    lastSyncLabel: snapshot.lastSyncLabel,
+    autoSyncPaused: snapshot.autoSyncPaused,
+    settings: snapshot.settings,
+    items: snapshot.items,
+    excludes: snapshot.excludes,
+    conflicts: snapshot.conflicts,
+    history: snapshot.history,
+    // Log is push-based, not part of the snapshot.
+    logLines: prev.logLines,
+  };
+}
+
+/** Merge a partial delta over the previous state; unset fields are kept. */
+export function mergeDelta(
+  prev: SyncUiState,
+  delta: WebDavSyncStatusDelta,
+): SyncUiState {
+  return {
+    state: delta.state ?? prev.state,
+    pendingCount: delta.pendingCount ?? prev.pendingCount,
+    conflictCount: delta.conflictCount ?? prev.conflictCount,
+    lastSyncAt: delta.lastSyncAt ?? prev.lastSyncAt,
+    lastSyncLabel: delta.lastSyncLabel ?? prev.lastSyncLabel,
+    autoSyncPaused: delta.autoSyncPaused ?? prev.autoSyncPaused,
+    settings: prev.settings,
+    items: prev.items,
+    excludes: prev.excludes,
+    conflicts:
+      delta.conflictCount !== undefined && delta.conflictCount === 0
+        ? []
+        : prev.conflicts,
+    history: prev.history,
+    logLines: prev.logLines,
+  };
+}
+
+/** Visual variant of the toolbar status icon. */
+export type SyncIconKind =
+  | "conflict"
+  | "error"
+  | "paused"
+  | "syncing"
+  | "pending";
+
+export interface SyncIconInfo {
+  kind: SyncIconKind;
+  /** Count badge for pending / conflict. */
+  count?: number;
+}
+
+/**
+ * Visibility: syncing / error / paused states, or a non-zero pending /
+ * conflict count (which may arrive while state stays "idle").
+ * Unconfigured and plain idle never show. The `showStatusIcon` server
+ * setting is the master switch.
+ */
+export function syncIconInfo(s: SyncUiState): SyncIconInfo | null {
+  if (!s.settings?.showStatusIcon) {
+    return null;
+  }
+  if (s.state === "unconfigured") {
+    return null;
+  }
+  if (s.conflictCount > 0) {
+    return { kind: "conflict", count: s.conflictCount };
+  }
+  if (s.autoSyncPaused) {
+    return { kind: "paused" };
+  }
+  if (s.state === "error") {
+    return { kind: "error" };
+  }
+  if (s.state === "syncing") {
+    return { kind: "syncing" };
+  }
+  if (s.pendingCount > 0) {
+    return { kind: "pending", count: s.pendingCount };
+  }
+  return null;
+}

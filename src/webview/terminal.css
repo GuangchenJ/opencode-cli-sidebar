@@ -1381,7 +1381,7 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 }
 .ocu-btn:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
 .ocu-btn-primary {
-  background: var(--vscode-button-background, #0078d4);
+  background: var(--vscode-button-background, #007fd4);
   color: var(--vscode-button-foreground, #ffffff);
 }
 .ocu-btn-primary:hover { background: var(--vscode-button-hoverBackground, #1a85d8); }
@@ -1960,4 +1960,420 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 }
 .ocu-ip-btn-primary:hover {
   background: var(--vscode-button-hoverBackground, #007fd4);
+}
+
+
+/* ─────────── WebDAV config sync (dav-*) ─────────── */
+
+/* L0: status icon next to the version pill */
+.dav-sync-dot {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: none; border: none; padding: 2px 3px; border-radius: 3px;
+  font-size: 11px; font-family: var(--vscode-font-family); cursor: pointer; line-height: 1;
+  color: var(--vscode-foreground, #d4d4d4);
+}
+.dav-sync-dot:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); }
+.dav-sync-dot:focus-visible { outline: 1px solid var(--vscode-focusBorder, #007fd4); }
+.dav-sync-dot[data-state="syncing"] { color: var(--vscode-focusBorder, #007fd4); }
+.dav-sync-dot[data-state="pending"] { color: var(--vscode-editorWarning-foreground, #cca700); }
+.dav-sync-dot[data-state="conflict"], .dav-sync-dot[data-state="error"] { color: var(--vscode-errorForeground, #f87171); }
+.dav-sync-dot.hidden { display: none; }
+.dav-sync-count { font-size: 10px; font-weight: 600; }
+.dav-sync-count.hidden { display: none; }
+.dav-blink { animation: dav-blink 1.2s ease-in-out infinite; display: inline-flex; }
+@keyframes dav-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .dav-blink { animation: none; }
+}
+
+/* Buttons shared across the sync UI */
+.dav-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: none; border-radius: 3px; padding: 3px 10px;
+  font-size: 11px; cursor: pointer; font-family: var(--vscode-font-family);
+  background: var(--vscode-button-background, #007fd4);
+  color: var(--vscode-button-foreground, #ffffff);
+}
+.dav-btn:hover { background: var(--vscode-button-hoverBackground, #026ec1); }
+.dav-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.dav-btn.hidden { display: none; }
+.dav-btn--secondary {
+  background: var(--vscode-button-secondaryBackground, rgba(128,128,128,0.12));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground, #d4d4d4));
+}
+.dav-btn--secondary:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(128,128,128,0.18)); }
+.dav-btn--link { background: none; color: var(--vscode-textLink-foreground, var(--vscode-focusBorder, #007fd4)); padding: 3px 4px; }
+/* 服务器卡片存在未保存改动时的保存按钮高亮 */
+.dav-btn--attention {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  font-weight: 600;
+}
+
+/* Toolbar icon hover tooltip (dav-pop family; JS-anchored fixed because
+   the sync shell renders outside the toolbar). Quiet one-line status
+   preview with a dismiss action; never shown together with the popover. */
+.dav-tip {
+  position: fixed; z-index: 2100;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--vscode-dropdown-background, #252526);
+  border: 1px solid var(--vscode-dropdown-border, #454545);
+  border-radius: 4px; box-shadow: 0 4px 12px var(--vscode-widget-shadow, rgba(0,0,0,0.35));
+  padding: 5px 6px 5px 10px; font-size: 11px; font-family: var(--vscode-font-family);
+  color: var(--vscode-dropdown-foreground, #cccccc);
+  max-width: calc(100vw - 16px);
+}
+.dav-tip.hidden { display: none; }
+.dav-tip-ic { display: inline-flex; }
+.dav-tip-text { color: var(--vscode-foreground, #d4d4d4); }
+.dav-tip-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: none; border-radius: 4px;
+  background: none; color: var(--vscode-descriptionForeground, #8a8a8a); cursor: pointer;
+}
+.dav-tip-close:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); color: var(--vscode-foreground, #d4d4d4); }
+
+/* L1: popover (settings-dropdown pattern) */
+.dav-pop {
+  position: absolute; top: calc(100% + 6px); left: 6px; z-index: 2000;
+  background: var(--vscode-dropdown-background, #252526);
+  border: 1px solid var(--vscode-dropdown-border, #454545);
+  border-radius: 4px; box-shadow: 0 4px 12px var(--vscode-widget-shadow, rgba(0,0,0,0.35));
+  padding: 8px 10px; font-size: 11px; font-family: var(--vscode-font-family);
+  color: var(--vscode-dropdown-foreground, #cccccc);
+  width: max-content; max-width: calc(100vw - 16px);
+}
+.dav-pop.hidden { display: none; }
+.dav-pop-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.dav-pop-ic { display: inline-flex; }
+.dav-pop-sub { color: var(--vscode-descriptionForeground, #8a8a8a); margin: 3px 0 0 18px; }
+.dav-paused { color: var(--vscode-errorForeground, #f87171); }
+.dav-pop-hr { border: none; border-top: 1px solid var(--vscode-panel-border, #2e2e2e); margin: 8px -10px; }
+.dav-act-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* L2: overlay + modal (km-modal pattern) */
+.dav-overlay {
+  position: fixed; inset: 0; z-index: 3000;
+  background: var(--vscode-widget-shadow, rgba(0,0,0,0.55));
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.dav-overlay.hidden { display: none; }
+.dav-modal {
+  background: var(--vscode-editor-background, #161616);
+  border: 1px solid var(--vscode-panel-border, #2e2e2e);
+  border-radius: 10px; display: flex; flex-direction: column; overflow: hidden;
+  color: var(--vscode-foreground, #d4d4d4); font-family: var(--vscode-font-family);
+  width: min(860px, 100%); max-width: 100%;
+  height: min(620px, calc(100vh - 32px));
+  box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0,0,0,0.4));
+}
+.dav-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px 8px; border-bottom: 1px solid var(--vscode-panel-border, #2e2e2e);
+}
+.dav-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--vscode-foreground, #d4d4d4); }
+.dav-sub-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; margin-top: 2px; }
+.dav-sub { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
+.dav-sub--error { color: var(--vscode-errorForeground, #f87171); }
+.dav-header-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.dav-icon-btn {
+  background: none; border: none; color: var(--vscode-descriptionForeground, #8a8a8a);
+  width: 28px; height: 28px; border-radius: 4px; cursor: pointer; font-size: 14px;
+}
+.dav-icon-btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); color: var(--vscode-foreground, #d4d4d4); }
+.dav-error {
+  display: flex; align-items: center; gap: 8px; padding: 6px 14px; font-size: 12px; line-height: 1.4;
+  background: var(--vscode-inputValidation-errorBackground, rgba(239,68,68,0.12));
+  border-bottom: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground, #ef4444));
+  color: var(--vscode-errorForeground, #f87171);
+}
+.dav-error.hidden { display: none; }
+/* 未配置提示条：warning 级横幅，仅常规分区顶部 */
+.dav-banner {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; margin-bottom: 14px; border-radius: 6px; font-size: 12px; line-height: 1.4;
+}
+.dav-banner > span { flex: 1; min-width: 0; }
+.dav-banner--warn {
+  background: var(--vscode-inputValidation-warningBackground, rgba(204,167,0,0.12));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground, #cca700));
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.dav-banner.hidden { display: none; }
+.dav-main { flex: 1; min-height: 0; display: flex; }
+.dav-nav {
+  width: 128px; flex-shrink: 0; overflow-y: auto; padding: 8px 0;
+  border-right: 1px solid var(--vscode-panel-border, #2e2e2e);
+}
+.dav-nav-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 6px; width: 100%;
+  padding: 7px 12px; border: none; background: none;
+  color: var(--vscode-foreground, #d4d4d4); font-size: 12px; cursor: pointer;
+  text-align: left; border-left: 2px solid transparent; font-family: inherit;
+}
+.dav-nav-item:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.12)); }
+.dav-nav-item.is-on {
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground, #d4d4d4));
+  background: var(--vscode-list-activeSelectionBackground, rgba(59,130,246,0.18));
+  border-left-color: var(--vscode-focusBorder, #007fd4); font-weight: 600;
+}
+.dav-nav-count {
+  font-size: 10px; min-width: 15px; height: 15px; border-radius: 8px; padding: 0 4px;
+  background: var(--vscode-errorForeground, #f87171);
+  color: var(--vscode-editor-background, #161616);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dav-nav-count.hidden { display: none; }
+.dav-body { flex: 1; min-width: 0; overflow-y: auto; padding: 14px; }
+.dav-pane { display: none; }
+.dav-pane.is-on { display: block; }
+
+/* General pane: flat layout, hierarchy via indentation only */
+.dav-block-gap { margin-top: 16px; }
+
+/* General form */
+/* 输入基础规则：border-box 消除 width:100% + padding/border 造成的固有横向溢出，
+   min-width:0 消除 flex/grid 项的 intrinsic 最小宽 */
+.dav-modal input[type="text"], .dav-modal input[type="password"], .dav-modal input[type="number"] {
+  box-sizing: border-box; min-width: 0;
+}
+.dav-field { margin-bottom: 12px; }
+.dav-field label { display: block; font-size: 12px; margin-bottom: 4px; }
+.dav-field input[type="text"], .dav-field input[type="password"], .dav-add-row input[type="text"] {
+  width: 100%; background: var(--vscode-input-background, #2a2a2a);
+  color: var(--vscode-input-foreground, var(--vscode-foreground, #d4d4d4));
+  border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+  padding: 4px 8px; font-size: 12px; font-family: inherit;
+}
+.dav-field input:focus, .dav-add-row input:focus { outline: 1px solid var(--vscode-focusBorder, #007fd4); border-color: var(--vscode-focusBorder, #007fd4); }
+.dav-pass-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dav-pass-row input { flex: 1 1 120px; min-width: 0; }
+.dav-pw-set {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+  color: var(--vscode-descriptionForeground, #8a8a8a); flex-shrink: 0;
+}
+.dav-pw-set.hidden { display: none; }
+.dav-hint { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); margin-top: 3px; }
+.dav-link {
+  background: none; border: none; padding: 0; margin: 0; font: inherit;
+  color: var(--vscode-textLink-foreground, var(--vscode-focusBorder, #007fd4));
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.dav-link:hover { color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground, #007fd4)); }
+.dav-check { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; font-size: 12px; cursor: pointer; }
+.dav-check input[type="checkbox"] { accent-color: var(--vscode-focusBorder, #007fd4); margin-top: 1px; flex-shrink: 0; }
+/* 行内 hint 独立成行，与勾选文案保持间距 */
+.dav-check .dav-hint { display: block; margin-top: 2px; }
+
+/* Auto-sync master row + collapsible trigger group */
+.dav-master-row { display: flex; align-items: flex-start; gap: 4px; }
+.dav-master-row .dav-check { flex: 1; min-width: 0; }
+.dav-sub-chev {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; padding: 3px 4px; margin-top: 2px;
+  border-radius: 3px; cursor: pointer; color: var(--vscode-descriptionForeground, #8a8a8a);
+}
+.dav-sub-chev:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); color: var(--vscode-foreground, #d4d4d4); }
+.dav-sub-chev:focus-visible { outline: 1px solid var(--vscode-focusBorder, #007fd4); }
+.dav-sub-chev.hidden { display: none; }
+.dav-chev { transition: transform 0.15s ease; display: inline-flex; }
+.dav-sub-chev.is-collapsed .dav-chev { transform: rotate(-90deg); }
+/* Trigger-source group: indentation expresses the hierarchy (no rail) */
+.dav-sub-settings { margin-left: 24px; }
+.dav-sub-settings.hidden { display: none; }
+.dav-sub-body.is-collapsed { display: none; }
+.dav-poll-row { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px 24px; font-size: 12px; flex-wrap: wrap; }
+.dav-poll-label { color: var(--vscode-foreground, #d4d4d4); }
+.dav-poll-row input[type="number"] {
+  width: 72px; background: var(--vscode-input-background, #2a2a2a);
+  color: var(--vscode-input-foreground, var(--vscode-foreground, #d4d4d4));
+  border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+  padding: 3px 6px; font-size: 12px; font-family: inherit;
+}
+.dav-poll-row input:focus { outline: 1px solid var(--vscode-focusBorder, #007fd4); border-color: var(--vscode-focusBorder, #007fd4); }
+.dav-poll-row input:disabled { opacity: 0.4; cursor: not-allowed; }
+.dav-poll-unit { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
+/* Server pane: rate-limit row, same compact number-input language as the poll row */
+.dav-ratelimit-row { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; font-size: 12px; flex-wrap: wrap; }
+.dav-ratelimit-row label { color: var(--vscode-foreground, #d4d4d4); }
+.dav-ratelimit-row input[type="number"] {
+  width: 72px; background: var(--vscode-input-background, #2a2a2a);
+  color: var(--vscode-input-foreground, var(--vscode-foreground, #d4d4d4));
+  border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px;
+  padding: 3px 6px; font-size: 12px; font-family: inherit;
+}
+.dav-ratelimit-row input:focus { outline: 1px solid var(--vscode-focusBorder, #007fd4); border-color: var(--vscode-focusBorder, #007fd4); }
+.dav-ratelimit-unit { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
+/* 操作按钮右对齐收尾；测试结果靠左显示反馈 */
+.dav-form-actions { display: flex; gap: 8px; align-items: center; margin-top: 16px; flex-wrap: wrap; justify-content: flex-end; }
+.dav-form-actions .dav-test-result { margin-right: auto; }
+.dav-test-result { font-size: 11px; }
+.dav-test-result.ok { color: var(--vscode-list-activeSelectionForeground, var(--vscode-focusBorder, #007fd4)); }
+.dav-test-result.fail { color: var(--vscode-errorForeground, #f87171); }
+
+/* Items pane: two quiet groups (header + teaching hint + list + add row).
+   The exclusions group is indented to read as subordinate — the same
+   device as the general-pane trigger group; whitespace separates the
+   groups, no horizontal rules. */
+.dav-item-group + .dav-item-group { margin-top: 24px; }
+.dav-item-head-label { display: block; font-size: 12px; font-weight: 600; color: var(--vscode-foreground, #d4d4d4); }
+.dav-item-head-hint {
+  display: block; font-size: 11px; line-height: 1.5;
+  color: var(--vscode-descriptionForeground, #8a8a8a); margin: 3px 0 6px;
+}
+/* Rows: leading toggle, ellipsized path, right-aligned tag pill when a
+   tag exists, and a remove icon revealed on hover — no per-row rules. */
+.dav-item-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 6px; margin: 0 -6px; border-radius: 4px; font-size: 12px;
+}
+.dav-item-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.08)); }
+.dav-item-row input[type="checkbox"] { accent-color: var(--vscode-focusBorder, #007fd4); margin: 0; flex-shrink: 0; }
+.dav-item-path {
+  flex: 1; min-width: 0;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 11px;
+  color: var(--vscode-foreground, #d4d4d4);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Disabled items dim to the description tone so enabled rows lead the scan. */
+.dav-item-row.is-off .dav-item-path { color: var(--vscode-descriptionForeground, #8a8a8a); }
+.dav-item-tag {
+  flex-shrink: 0; font-size: 10px; line-height: 1; white-space: nowrap;
+  border-radius: 999px; padding: 3px 7px;
+  color: var(--vscode-descriptionForeground, #8a8a8a);
+  background: color-mix(in srgb, var(--vscode-descriptionForeground, #8a8a8a) 14%, var(--vscode-editor-background, #161616));
+}
+.dav-item-row.is-off .dav-item-tag { opacity: 0.6; }
+.dav-item-rm {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 20px; height: 20px; padding: 0; border: none; border-radius: 4px;
+  background: none; color: var(--vscode-descriptionForeground, #8a8a8a); cursor: pointer; opacity: 0;
+}
+.dav-item-row:hover .dav-item-rm, .dav-item-rm:focus-visible { opacity: 1; }
+.dav-item-rm:hover { color: var(--vscode-errorForeground, #f87171); background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); }
+/* Touch has no hover: keep remove reachable. */
+@media (hover: none) { .dav-item-rm { opacity: 1; } }
+.dav-item-empty { padding: 4px 0 2px; font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
+/* Add composite: input + compact button; the error slot sits directly
+   under the input it belongs to and mirrors it with an error border. */
+.dav-add { margin-top: 8px; }
+.dav-add-row { display: flex; gap: 6px; align-items: stretch; }
+.dav-add-row input { flex: 1; min-width: 0; }
+.dav-add-error { font-size: 11px; line-height: 1.5; color: var(--vscode-errorForeground, #f87171); margin-top: 4px; }
+.dav-add-error.hidden { display: none; }
+.dav-add-row input.is-error { border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground, #ef4444)); }
+
+/* Conflict pane */
+.dav-conflict-card {
+  border: 1px solid var(--vscode-panel-border, #2e2e2e);
+  border-left: 3px solid var(--vscode-errorForeground, #f87171);
+  border-radius: 6px; padding: 10px 12px; margin-bottom: 10px;
+}
+.dav-conflict-path { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; margin-bottom: 8px; word-break: break-all; }
+.dav-conflict-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); margin-bottom: 10px; }
+.dav-conflict-meta b { color: var(--vscode-foreground, #d4d4d4); font-weight: 600; }
+.dav-empty { padding: 26px 10px; text-align: center; color: var(--vscode-descriptionForeground, #8a8a8a); font-size: 12px; }
+
+/* History pane: column-aligned grid. The trigger column is 64px: the
+   longest labels ("Local change", "Config save", "Scope change") need
+   ~60px at the 11px metadata size, so the 44px used elsewhere overflows. */
+/* Top line: the clear action rides the column-header row (ghost icon,
+   red hover like the items-row remove) instead of floating above it;
+   the header grid keeps exactly its six spans so the narrow-mode
+   nth-child column hiding below stays intact. */
+.dav-hist-top { display: flex; align-items: center; gap: 8px; }
+.dav-hist-top .dav-hist-head { flex: 1; min-width: 0; }
+.dav-hist-clear {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px;
+  background: none; color: var(--vscode-descriptionForeground, #8a8a8a); cursor: pointer;
+}
+.dav-hist-clear:hover { color: var(--vscode-errorForeground, #f87171); background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); }
+.dav-hist-clear:focus-visible { outline: 1px solid var(--vscode-focusBorder, #007fd4); }
+.dav-hist-grid {
+  display: grid;
+  grid-template-columns: 72px 56px 64px 48px 48px minmax(0, 1fr);
+  column-gap: 8px; align-items: center;
+}
+.dav-hist-head {
+  font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a);
+  padding: 0 0 5px; border-bottom: 1px solid var(--vscode-panel-border, #2e2e2e);
+}
+.dav-hist-row { padding: 7px 0; font-size: 12px; border-bottom: 1px solid var(--vscode-panel-border, #2e2e2e); }
+.dav-hist-t { font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
+.dav-hist-trig { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); white-space: nowrap; }
+.dav-hist-msg {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--vscode-descriptionForeground, #8a8a8a); font-size: 11px;
+}
+/* Status chips: soft tint mixed from the status color into the theme background,
+   pill-shaped, borderless — quiet next to the solid .dav-nav-count pill. */
+.dav-badge {
+  font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap;
+  border-radius: 999px; padding: 3px 7px; justify-self: start;
+}
+.dav-badge--ok {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  background: color-mix(in srgb, var(--vscode-textLink-foreground, #3794ff) 15%, var(--vscode-editor-background, #161616));
+}
+.dav-badge--fail {
+  color: var(--vscode-errorForeground, #f87171);
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f87171) 15%, var(--vscode-editor-background, #161616));
+}
+.dav-badge--part {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+  background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 18%, var(--vscode-editor-background, #161616));
+}
+
+/* Log pane: flex column so the pre owns its own vertical scrolling inside
+   .dav-body (no outer double scrollbar); fixed black-on-white log surface
+   for readable logs in both dark and light themes. */
+.dav-pane[data-pane="log"].is-on {
+  display: flex; flex-direction: column; height: 100%;
+}
+.dav-log-pre.hidden, .dav-empty.hidden { display: none; }
+.dav-log-pre {
+  margin: 0; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; line-height: 1.6;
+  background: #000; color: #fff;
+  padding: 10px; border-radius: 6px;
+  border: 1px solid var(--vscode-panel-border, #2e2e2e);
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* Footer */
+.dav-footer {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  border-top: 1px solid var(--vscode-panel-border, #2e2e2e);
+  background: var(--vscode-editorWidget-background, #202020);
+}
+.dav-foot-st { flex: 1; font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Narrow sidebar (<420px): summary/messages wrap to a second row;
+   nav collapses to a horizontal scrollable tab strip above the body */
+@media (max-width: 419px) {
+  .dav-main { flex-direction: column; }  .dav-nav {
+    width: auto; flex-shrink: 0; display: flex; flex-wrap: nowrap;
+    overflow-x: auto; padding: 0 4px;
+    border-right: none; border-bottom: 1px solid var(--vscode-panel-border, #2e2e2e);
+  }
+  .dav-nav-item {
+    white-space: nowrap; padding: 6px 8px; flex-shrink: 0;
+    border-left: none; border-bottom: 2px solid transparent;
+  }
+  .dav-nav-item.is-on { border-left-color: transparent; border-bottom-color: var(--vscode-focusBorder, #007fd4); }
+  .dav-hist-grid { grid-template-columns: 64px 52px 36px 44px; }
+  .dav-badge { padding: 3px 5px; }  /* keep chip within the 44px result column */
+  /* Trigger column hidden on narrow sidebars: the five fixed columns plus
+     gaps already consume ~268px of the ~270px a 300px sidebar leaves after
+     modal padding, and its longest labels would not fit anyway. */
+  .dav-hist-head > span:nth-child(3) { display: none; }
+  .dav-hist-trig { display: none; }
+  .dav-hist-head > span:last-child { display: none; }
+  .dav-hist-row .dav-hist-msg {
+    grid-column: 1 / -1; grid-row: 2;
+    white-space: normal; overflow: visible; text-overflow: clip; word-break: break-all;
+  }
+  /* Items pane: flex rows adapt naturally; only soften the group gap
+     and the exclusions indent so paths keep their width. */
+  .dav-item-group + .dav-item-group { margin-top: 18px; }
 }

@@ -1,4 +1,4 @@
-# Opencode CLI Sidebar Agent Notes
+# OpenCode CLI Sidebar Agent Notes
 
 ## Project Shape
 

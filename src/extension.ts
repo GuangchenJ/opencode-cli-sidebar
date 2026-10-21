@@ -1,5 +1,5 @@
 /**
- * Main entry point for the Opencode CLI Sidebar VS Code extension.
+ * Main entry point for the OpenCode CLI Sidebar VS Code extension.
  */
 
 import * as vscode from "vscode";
@@ -10,12 +10,12 @@ const lifecycle = new ExtensionLifecycle();
 
 export function activate(context: vscode.ExtensionContext): Promise<void> {
   const logger = OutputChannelService.getInstance();
-  logger.info("Opencode CLI Sidebar extension activating...");
+  logger.info("OpenCode CLI Sidebar extension activating...");
   return lifecycle.activate(context);
 }
 
 export async function deactivate(): Promise<void> {
   const logger = OutputChannelService.getInstance();
-  logger.info("Opencode CLI Sidebar extension deactivating...");
+  logger.info("OpenCode CLI Sidebar extension deactivating...");
   await lifecycle.deactivate();
 }

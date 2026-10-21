@@ -19,10 +19,10 @@ export class OutputChannelService implements ILogger {
 
   /**
    * Private constructor to enforce singleton pattern.
-   * Creates a LogOutputChannel named 'Opencode CLI Sidebar'.
+   * Creates a LogOutputChannel named 'OpenCode CLI Sidebar'.
    */
   private constructor() {
-    this.channel = vscode.window.createOutputChannel("Opencode CLI Sidebar", {
+    this.channel = vscode.window.createOutputChannel("OpenCode CLI Sidebar", {
       log: true,
     });
   }

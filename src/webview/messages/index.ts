@@ -54,6 +54,21 @@ export interface MessageHandlerCallbacks {
   onOpenCodeChangelog?: (
     message: Extract<HostMessage, { type: "openCodeChangelog" }>,
   ) => void;
+  onWebdavSyncData?: (
+    message: Extract<HostMessage, { type: "webdavSyncData" }>,
+  ) => void;
+  onWebdavSyncStatus?: (
+    message: Extract<HostMessage, { type: "webdavSyncStatus" }>,
+  ) => void;
+  onWebdavTestResult?: (
+    message: Extract<HostMessage, { type: "webdavTestResult" }>,
+  ) => void;
+  onWebdavSaveResult?: (
+    message: Extract<HostMessage, { type: "webdavSaveResult" }>,
+  ) => void;
+  onWebdavLog?: (
+    message: Extract<HostMessage, { type: "webdavLog" }>,
+  ) => void;
 }
 
 export interface MessageHandler {
@@ -213,6 +228,26 @@ export function createMessageHandler(
 
         case "openCodeChangelog":
           callbacks.onOpenCodeChangelog?.(message);
+          break;
+
+        case "webdavSyncData":
+          callbacks.onWebdavSyncData?.(message);
+          break;
+
+        case "webdavSyncStatus":
+          callbacks.onWebdavSyncStatus?.(message);
+          break;
+
+        case "webdavTestResult":
+          callbacks.onWebdavTestResult?.(message);
+          break;
+
+        case "webdavSaveResult":
+          callbacks.onWebdavSaveResult?.(message);
+          break;
+
+        case "webdavLog":
+          callbacks.onWebdavLog?.(message);
           break;
       }
     },

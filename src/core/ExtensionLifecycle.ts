@@ -21,6 +21,8 @@ import {
   OpenCodeUpdateService,
 } from "../services/OpenCodeUpdateService";
 import { OpenCodeChangelogService } from "../services/OpenCodeChangelogService";
+import { ConfigSyncService } from "../services/sync/ConfigSyncService";
+import { setActiveConfigSyncService } from "../services/sync/syncServiceRegistry";
 import { IdeContextServer } from "../services/ideContext/IdeContextServer";
 import { PortManager } from "../services/PortManager";
 import { ConnectionResolver } from "../services/ConnectionResolver";
@@ -60,6 +62,7 @@ export class ExtensionLifecycle {
   private backendRegistry: TerminalBackendRegistry | undefined;
   private ideContextServer: IdeContextServer | undefined;
   private opencodeUpdateService: OpenCodeUpdateService | undefined;
+  private configSyncService: ConfigSyncService | undefined;
   private activated = false;
   private tuiProviderRegistration: vscode.Disposable | undefined;
   private context?: vscode.ExtensionContext;
@@ -107,7 +110,7 @@ export class ExtensionLifecycle {
       return;
     }
     this.activated = true;
-    logger.info("Initializing Opencode CLI Sidebar...");
+    logger.info("Initializing OpenCode CLI Sidebar...");
 
     // One-time silent migration of legacy ai-sidebar-terminal settings to
     // the current prefix. Runs before anything reads configuration so
@@ -307,6 +310,34 @@ export class ExtensionLifecycle {
         }
       }
 
+      // WebDAV config sync: owns its own push channel mirroring the
+      // openCodeUpdateStatus pattern — status deltas flow through
+      // onDidChange, full replies go straight through postWebviewMessage.
+      // TerminalProvider is not modified this iteration, so visibility is
+      // probed through a narrow structural cast.
+      this.configSyncService = new ConfigSyncService(context, {
+        logger,
+        postWebviewMessage: (message) =>
+          this.tuiProvider?.postWebviewMessage(message),
+        isWebviewVisible: () => {
+          const provider = this.tuiProvider as unknown as {
+            isWebviewVisible?: () => boolean;
+          } | undefined;
+          return provider?.isWebviewVisible?.() ?? true;
+        },
+      });
+      context.subscriptions.push(this.configSyncService);
+      setActiveConfigSyncService(this.configSyncService);
+      context.subscriptions.push(
+        this.configSyncService.onDidChange((delta) => {
+          this.tuiProvider?.postWebviewMessage({
+            type: "webdavSyncStatus",
+            delta,
+          });
+        }),
+      );
+      this.configSyncService.initialize();
+
       this.registerCommands(context);
 
       // Local fast fill: a pure-local version probe puts the version on the
@@ -341,13 +372,13 @@ export class ExtensionLifecycle {
       // "command not found" errors.
       await vscode.commands.executeCommand("setContext", "opencode-cli-sidebar.active", true);
 
-      logger.info("Opencode CLI Sidebar activated successfully");
+      logger.info("OpenCode CLI Sidebar activated successfully");
     } catch (error) {
       logger.error(
-        `Failed to activate Opencode CLI Sidebar: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to activate OpenCode CLI Sidebar: ${error instanceof Error ? error.message : String(error)}`,
       );
       vscode.window.showErrorMessage(
-        l10n.t("Failed to activate Opencode CLI Sidebar: {error}", {
+        l10n.t("Failed to activate OpenCode CLI Sidebar: {error}", {
           error: error instanceof Error ? error.message : String(error),
         }),
       );
@@ -374,6 +405,9 @@ export class ExtensionLifecycle {
       },
       get opencodeUpdateService() {
         return self.opencodeUpdateService;
+      },
+      get configSyncService() {
+        return self.configSyncService;
       },
       getActiveTerminalId: () => this.getActiveTerminalId(),
       sendTerminalCwd: () => this.sendTerminalCwd(),
@@ -647,7 +681,7 @@ export class ExtensionLifecycle {
   }
 
   async deactivate(): Promise<void> {
-    this.outputChannelService?.info("Deactivating Opencode CLI Sidebar...");
+    this.outputChannelService?.info("Deactivating OpenCode CLI Sidebar...");
     this.activated = false;
 
     if (this.updateCheckTimer) {
@@ -713,6 +747,14 @@ export class ExtensionLifecycle {
 
     this.opencodeUpdateService = undefined;
 
+    // Disposal itself is owned by context.subscriptions (same as
+    // opencodeUpdateService); deactivate only clears the registry entry
+    // and the reference so commands stop resolving the torn-down service.
+    if (this.configSyncService) {
+      setActiveConfigSyncService(undefined);
+      this.configSyncService = undefined;
+    }
+
     this.codeActionProvider = undefined;
 
     this.captureManager = undefined;
@@ -725,7 +767,7 @@ export class ExtensionLifecycle {
       // intentionally empty: setContext during deactivation is best-effort
     }
 
-    logger?.info("Opencode CLI Sidebar deactivated");
+    logger?.info("OpenCode CLI Sidebar deactivated");
   }
 
   /**

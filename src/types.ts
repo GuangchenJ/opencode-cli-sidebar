@@ -82,7 +82,33 @@ export type WebviewMessage =
   /** Missing-CLI install confirmation dialog answer. */
   | { type: "answerCliInstallPrompt"; action: CliInstallPromptAction }
   | { type: "requestOpenCodeChangelog" }
-  | { type: "sendChangelogToOpenCode"; text: string };
+  | { type: "sendChangelogToOpenCode"; text: string }
+  /* ===================== WebDAV config sync ===================== */
+  /** Webview boot / sync panel open: request the full sync snapshot. */
+  | { type: "requestWebdavSyncData" }
+  /** Save button in the server card; persists connection fields only. */
+  | { type: "saveWebdavServerConfig"; config: WebDavServerConfig; password?: string }
+  /** Immediate apply for auto sync, poll interval and status icon options. */
+  | { type: "applyWebdavSyncOptions"; options: WebDavSyncOptions }
+  /** Test the form draft against the server; the host persists nothing. */
+  | { type: "testWebdavConnection"; draft: WebDavConnectionDraft }
+  | { type: "setWebdavItemEnabled"; id: string; enabled: boolean }
+  | { type: "addWebdavItem"; path: string }
+  | { type: "removeWebdavItem"; id: string }
+  /** Exclusions filter files out of directory items; paths relative to the config directory. */
+  | { type: "addWebdavExclude"; path: string }
+  | { type: "removeWebdavExclude"; path: string }
+  /** Manual "Sync now": popover button, panel footer and command all funnel here. */
+  | { type: "syncWebdavNow" }
+  /** Lazy-load the sync log tail when the log section becomes visible. */
+  | { type: "requestWebdavLog" }
+  /** Wipe the persisted sync history from the history pane toolbar. */
+  | { type: "clearWebdavHistory" }
+  | { type: "resolveWebdavConflict"; id: string; resolution: "local" | "remote" }
+  /** Open a VS Code diff editor for one side of a conflict. */
+  | { type: "openWebdavDiff"; id: string }
+  /** Open the OpenCode config directory in the OS file manager. */
+  | { type: "openOpenCodeConfigDir" };
 
 export const ALLOWED_IMAGE_TYPES = [
   "image/png",
@@ -239,7 +265,144 @@ export type HostMessage =
   | { type: "openCodeSessionStarted" }
   /** Single push channel driving the OpenCode self-update UI. */
   | { type: "openCodeUpdateStatus"; status: OpenCodeUpdateUiStatus }
-  | { type: "openCodeChangelog"; payload: OpenCodeChangelogPayload };
+  | { type: "openCodeChangelog"; payload: OpenCodeChangelogPayload }
+  /* ===================== WebDAV config sync ===================== */
+  /** Full snapshot reply to requestWebdavSyncData. */
+  | { type: "webdavSyncData"; snapshot: WebDavSyncSnapshot }
+  /** Partial merge push driving the status icon, popover and panel footer. */
+  | { type: "webdavSyncStatus"; delta: WebDavSyncStatusDelta }
+  | { type: "webdavTestResult"; ok: boolean; latencyMs?: number; message?: string }
+  | { type: "webdavSaveResult"; ok: boolean; error?: string }
+  | { type: "webdavLog"; lines: string[] };
+
+/* ===================== WebDAV config sync payload types ===================== */
+
+/** Granular auto-sync trigger toggles: master switch plus per-trigger items. */
+export interface WebDavAutoSyncConfig {
+  enabled: boolean;
+  onStartup: boolean;
+  onLocalChange: boolean;
+  remotePoll: boolean;
+}
+
+/** Server connection fields edited in the server card; persisted by the explicit save button. */
+export interface WebDavServerConfig {
+  url: string;
+  username: string;
+  basePath: string;
+  allowInsecureHttp: boolean;
+  acceptSelfSigned: boolean;
+  /** Max WebDAV requests per sliding window; 0 = unlimited. */
+  rateLimitMaxRequests?: number;
+  /** Sliding window length in minutes. */
+  rateLimitWindowMinutes?: number;
+}
+
+/** Behavior options that apply immediately when changed in the panel. */
+export interface WebDavSyncOptions {
+  autoSync: WebDavAutoSyncConfig;
+  pollIntervalMinutes: number;
+  showStatusIcon: boolean;
+}
+
+/** Sync settings snapshot for the panel; server card plus immediate options. */
+export interface WebDavSyncSettings extends WebDavServerConfig, WebDavSyncOptions {
+  /** True when a password is stored in SecretStorage for this server. */
+  passwordSet: boolean;
+}
+
+/** One sync item row (built-in defaults plus user-added custom paths). */
+export interface WebDavSyncItemUi {
+  id: string;
+  path: string;
+  /** "pattern" items are regex entries (stored with an "re:" prefix) expanded by the host. */
+  kind: "file" | "dir" | "pattern";
+  enabled: boolean;
+  builtin: boolean;
+}
+
+/** Deletion decisions surface as conflicts with a dedicated kind. */
+export type WebDavConflictKind = "content" | "localDeleted" | "remoteDeleted";
+
+export interface WebDavConflictEntry {
+  id: string;
+  path: string;
+  kind: WebDavConflictKind;
+  localMtime?: number;
+  localSize?: number;
+  remoteMtime?: number;
+  remoteSize?: number;
+  /** Machine-readable cause hint, e.g. first sync without a baseline. */
+  reason?: string;
+}
+
+export type WebDavSyncState = "unconfigured" | "idle" | "syncing" | "error";
+
+export type WebDavHistoryDirection = "up" | "down" | "both" | "none";
+
+/** What started a sync pass; recorded on each history entry. */
+export type WebDavSyncTrigger =
+  | "startup"
+  | "localChange"
+  | "poll"
+  | "retry"
+  | "configSave"
+  | "excludeChange"
+  | "manual";
+
+export interface WebDavHistoryEntry {
+  time: number;
+  direction: WebDavHistoryDirection;
+  /** Trigger source of the pass; missing on entries persisted before the field existed. */
+  trigger?: WebDavSyncTrigger;
+  files: number;
+  result: "success" | "partial" | "failed";
+  message?: string;
+}
+
+/** Complete state of the sync feature, sent on requestWebdavSyncData. */
+export interface WebDavSyncSnapshot {
+  state: WebDavSyncState;
+  pendingCount: number;
+  conflictCount: number;
+  lastSyncAt?: number;
+  /** Host-localized relative label, e.g. "3 分钟前". */
+  lastSyncLabel?: string;
+  /** Circuit breaker: auto triggers paused after fatal or repeated errors. */
+  autoSyncPaused: boolean;
+  /** Connection, trigger and visibility settings edited in the general section. */
+  settings: WebDavSyncSettings;
+  items: WebDavSyncItemUi[];
+  /** User-defined paths excluded from syncing, relative to the config directory. */
+  excludes: string[];
+  conflicts: WebDavConflictEntry[];
+  history: WebDavHistoryEntry[];
+}
+
+/** Partial status push; unset fields keep their previous webview values. */
+export interface WebDavSyncStatusDelta {
+  state?: WebDavSyncState;
+  pendingCount?: number;
+  conflictCount?: number;
+  lastSyncAt?: number;
+  lastSyncLabel?: string;
+  autoSyncPaused?: boolean;
+  /** Transient toast text (host-localized); shown once, then dismissed. */
+  notice?: string;
+  /** Ask the webview to open the panel focused on the conflicts section. */
+  openConflicts?: boolean;
+}
+
+/** Connection-test draft taken from the form; never persisted by the host. */
+export interface WebDavConnectionDraft {
+  url: string;
+  username: string;
+  /** Present only when the user typed a new password in the form. */
+  password?: string;
+  basePath: string;
+  allowInsecureHttp: boolean;
+  acceptSelfSigned: boolean;
+}
 
 /** Release-notes payload for the in-webview changelog dialog. */
 export interface OpenCodeChangelogPayload {

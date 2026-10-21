@@ -51,7 +51,7 @@ async function getPackageJSON(): Promise<ExtensionPackageJSON> {
 }
 
 suite("Package contribution metadata", () => {
-  test("contributes the Opencode CLI Sidebar view container", async () => {
+  test("contributes the OpenCode CLI Sidebar view container", async () => {
     const packageJSON = await getPackageJSON();
     const secondarySidebar =
       packageJSON.contributes?.viewsContainers?.secondarySidebar ?? [];
@@ -60,7 +60,7 @@ suite("Package contribution metadata", () => {
     );
 
     assert.ok(container, "opencode-cli-sidebarContainer should be contributed");
-    assert.strictEqual(container.title, "Opencode CLI Sidebar");
+    assert.strictEqual(container.title, "OpenCode CLI Sidebar");
     assert.strictEqual(container.icon, "resources/activity-bar.svg");
   });
 

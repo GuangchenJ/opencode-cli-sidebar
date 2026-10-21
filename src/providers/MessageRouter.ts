@@ -30,7 +30,9 @@ import {
 } from "./openFile";
 import {
   ensureOpenCodeGlobalFile,
+  resolveOpenCodeConfigDir,
 } from "../services/openCodeConfigPath";
+import { getActiveConfigSyncService } from "../services/sync/syncServiceRegistry";
 import { toRelativeReference } from "./relativeReference";
 
 export interface MessageRouterProviderBridge {
@@ -158,6 +160,9 @@ export class MessageRouter {
       case "openOpenCodeGlobalFile":
         await this.handleOpenOpenCodeGlobalFile(message.target);
         break;
+      case "openOpenCodeConfigDir":
+        await this.openOpenCodeConfigDir();
+        break;
       case "updateFontSize":
         await this.handleUpdateFontSize(message.fontSize);
         break;
@@ -255,6 +260,75 @@ export class MessageRouter {
           await this.provider.sendChangelogToOpenCode(message.text);
         }
         break;
+      /* ===================== WebDAV config sync ===================== */
+      case "requestWebdavSyncData":
+        await getActiveConfigSyncService()?.requestSyncData();
+        break;
+      case "saveWebdavServerConfig":
+        await getActiveConfigSyncService()?.saveServerConfig(
+          message.config,
+          message.password,
+        );
+        break;
+      case "applyWebdavSyncOptions":
+        await getActiveConfigSyncService()?.applySyncOptions(message.options);
+        break;
+      case "testWebdavConnection":
+        await getActiveConfigSyncService()?.testConnection(message.draft);
+        break;
+      case "setWebdavItemEnabled":
+        if (typeof message.id === "string") {
+          await getActiveConfigSyncService()?.setItemEnabled(
+            message.id,
+            message.enabled,
+          );
+        }
+        break;
+      case "addWebdavItem":
+        if (typeof message.path === "string") {
+          await getActiveConfigSyncService()?.addItem(message.path);
+        }
+        break;
+      case "removeWebdavItem":
+        if (typeof message.id === "string") {
+          await getActiveConfigSyncService()?.removeItem(message.id);
+        }
+        break;
+      case "addWebdavExclude":
+        if (typeof message.path === "string") {
+          await getActiveConfigSyncService()?.addExclude(message.path);
+        }
+        break;
+      case "removeWebdavExclude":
+        if (typeof message.path === "string") {
+          await getActiveConfigSyncService()?.removeExclude(message.path);
+        }
+        break;
+      case "syncWebdavNow":
+        await getActiveConfigSyncService()?.syncNow();
+        break;
+      case "requestWebdavLog":
+        await getActiveConfigSyncService()?.requestLog();
+        break;
+      case "clearWebdavHistory":
+        await getActiveConfigSyncService()?.clearHistory();
+        break;
+      case "resolveWebdavConflict":
+        if (
+          typeof message.id === "string" &&
+          (message.resolution === "local" || message.resolution === "remote")
+        ) {
+          await getActiveConfigSyncService()?.resolveConflict(
+            message.id,
+            message.resolution,
+          );
+        }
+        break;
+      case "openWebdavDiff":
+        if (typeof message.id === "string") {
+          await getActiveConfigSyncService()?.openDiff(message.id);
+        }
+        break;
       default:
         break;
     }
@@ -282,6 +356,13 @@ export class MessageRouter {
     await vscode.window.showTextDocument(vscode.Uri.file(filePath), {
       preview: false,
     });
+  }
+
+  /** Open the OpenCode config directory in the OS file manager. */
+  private async openOpenCodeConfigDir(): Promise<void> {
+    await vscode.env.openExternal(
+      vscode.Uri.file(resolveOpenCodeConfigDir()),
+    );
   }
 
   public handleTerminalInput(data: string | undefined): void {
@@ -626,7 +707,7 @@ export class MessageRouter {
     const entries: Array<{ name: string; cwd: string }> = [];
 
     for (const terminal of vscode.window.terminals) {
-      if (terminal.name === "Opencode CLI Sidebar") {
+      if (terminal.name === "OpenCode CLI Sidebar") {
         continue;
       }
 

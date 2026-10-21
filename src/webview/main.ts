@@ -41,6 +41,14 @@ import {
   initOpenCodeUpdateUi,
   notifyOpenCodeSessionStarted,
 } from "./update";
+import {
+  applyWebdavLog,
+  applyWebdavSaveResult,
+  applyWebdavSyncData,
+  applyWebdavStatus,
+  applyWebdavTestResult,
+  initSyncUi,
+} from "./sync";
 
 const focusIndicator = createFocusIndicator();
 
@@ -117,6 +125,26 @@ const callbacks: MessageHandlerCallbacks = {
 
   onOpenCodeChangelog(message) {
     applyOpenCodeChangelog(message.payload);
+  },
+
+  onWebdavSyncData(message) {
+    applyWebdavSyncData(message.snapshot);
+  },
+
+  onWebdavSyncStatus(message) {
+    applyWebdavStatus(message.delta);
+  },
+
+  onWebdavTestResult(message) {
+    applyWebdavTestResult(message.ok, message.latencyMs, message.message);
+  },
+
+  onWebdavSaveResult(message) {
+    applyWebdavSaveResult(message.ok, message.error);
+  },
+
+  onWebdavLog(message) {
+    applyWebdavLog(message.lines);
   },
 
   onFocusIndicatorConfig(mode, width) {
@@ -215,6 +243,7 @@ function initApp(): void {
   initKeymapUi();
   initOpenCodeCliSettingsUi();
   initOpenCodeUpdateUi();
+  initSyncUi();
 
   window.addEventListener("message", (event: MessageEvent) => {
     messageHandler.handleEvent(event as MessageEvent<HostMessage>);

@@ -70,6 +70,7 @@ const mockEnsureOpenCodeGlobalFile = vi.hoisted(() =>
 
 vi.mock("../services/openCodeConfigPath", () => ({
   ensureOpenCodeGlobalFile: mockEnsureOpenCodeGlobalFile,
+  resolveOpenCodeConfigDir: vi.fn(() => "/tmp/opencode-tests"),
   resolveOpenCodeGlobalAgentsMdPath: vi.fn(
     () => "/tmp/opencode-tests/AGENTS.md",
   ),
@@ -336,6 +337,13 @@ describe("MessageRouter", () => {
     expect(provider.pasteText).toHaveBeenCalledWith("clipboard text");
     expect(provider.restart).toHaveBeenCalledTimes(1);
     expect(vscode.window.showTextDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the OpenCode config directory in the file manager", async () => {
+    await router.handleMessage({ type: "openOpenCodeConfigDir" });
+    expect(vscode.env.openExternal).toHaveBeenCalledWith(
+      expect.objectContaining({ scheme: "file" }),
+    );
   });
 
   it("routes OpenCode CLI plugin add/remove/update-check messages", async () => {
@@ -719,7 +727,7 @@ describe("MessageRouter", () => {
     const integratedTerminal = createMockTerminal("External A", "/workspace/a");
     const hiddenCwdTerminal = createMockTerminal("External B");
     const sidebarTerminal = createMockTerminal(
-      "Opencode CLI Sidebar",
+      "OpenCode CLI Sidebar",
       "/workspace/sidebar",
     );
     Object.defineProperty(hiddenCwdTerminal, "shellIntegration", {
@@ -1246,3 +1254,206 @@ describe("MessageRouter", () => {
   });
 
 });
+
+describe("MessageRouter WebDAV sync branches", () => {
+  type SyncServiceMock = Record<string, ReturnType<typeof vi.fn>>;
+
+  function createSyncService(): SyncServiceMock {
+    return {
+      requestSyncData: vi.fn(async () => undefined),
+      saveServerConfig: vi.fn(async () => undefined),
+      applySyncOptions: vi.fn(async () => undefined),
+      testConnection: vi.fn(async () => undefined),
+      setItemEnabled: vi.fn(async () => undefined),
+      addItem: vi.fn(async () => undefined),
+      removeItem: vi.fn(async () => undefined),
+      addExclude: vi.fn(async () => undefined),
+      removeExclude: vi.fn(async () => undefined),
+      syncNow: vi.fn(async () => undefined),
+      requestLog: vi.fn(async () => undefined),
+      clearHistory: vi.fn(async () => undefined),
+      resolveConflict: vi.fn(async () => undefined),
+      openDiff: vi.fn(async () => undefined),
+    };
+  }
+
+  let syncService: SyncServiceMock;
+  let router: MessageRouter;
+  let provider: MessageRouterProviderBridge;
+  let logger: OutputChannelService;
+
+  beforeEach(async () => {
+    const { setActiveConfigSyncService } = await import(
+      "../services/sync/syncServiceRegistry"
+    );
+    syncService = createSyncService();
+    setActiveConfigSyncService(syncService as never);
+    OutputChannelService.resetInstance();
+    logger = OutputChannelService.getInstance();
+    provider = {
+      startOpenCode: vi.fn(async () => undefined),
+      restart: vi.fn(),
+      answerServiceRestartPrompt: vi.fn(),
+      openSettings: vi.fn(),
+      openKeyboardShortcuts: vi.fn(),
+      toggleEditorAttachment: vi.fn(async () => undefined),
+      pasteText: vi.fn(),
+      getActiveInstanceId: vi.fn(() => "instance-1"),
+      getActiveTerminalId: vi.fn(() => "terminal-1"),
+      setLastKnownTerminalSize: vi.fn(),
+      getLastKnownTerminalSize: vi.fn(() => ({ cols: 120, rows: 40 })),
+      isStarted: vi.fn(() => false),
+      resizeActiveTerminal: vi.fn(),
+      postWebviewMessage: vi.fn(),
+      formatDroppedFiles: vi.fn(),
+      formatPastedImage: vi.fn(),
+      resendActiveSession: vi.fn(),
+      saveKeybind: vi.fn(async () => undefined),
+      resetKeybind: vi.fn(async () => undefined),
+      requestKeymapData: vi.fn(async () => undefined),
+      requestOpenCodeCliSettingsData: vi.fn(async () => undefined),
+      saveOpenCodeCliSetting: vi.fn(async () => undefined),
+      resetOpenCodeCliSetting: vi.fn(async () => undefined),
+      addOpenCodeCliPlugin: vi.fn(async () => undefined),
+      removeOpenCodeCliPlugin: vi.fn(async () => undefined),
+      checkOpenCodeCliPluginUpdates: vi.fn(async () => undefined),
+      updateOpenCodeCliPlugin: vi.fn(async () => undefined),
+      requestOpenCodeUpdateStatus: vi.fn(async () => undefined),
+      startOpenCodeUpdate: vi.fn(async () => undefined),
+      checkOpenCodeUpdates: vi.fn(async () => undefined),
+      abandonOpenCodeUpdate: vi.fn(),
+      restartAfterUpdate: vi.fn(async () => undefined),
+      dismissOpenCodeUpdate: vi.fn(),
+      retryCliProbe: vi.fn(async () => undefined),
+      answerCliInstallPrompt: vi.fn(async () => undefined),
+      requestOpenCodeChangelog: vi.fn(async () => undefined),
+      sendChangelogToOpenCode: vi.fn(async () => undefined),
+    };
+    const context =
+      new vscode.ExtensionContext() as unknown as vscodeApi.ExtensionContext;
+    router = new MessageRouter(
+      provider,
+      context,
+      {} as never,
+      {} as never,
+      undefined,
+      {} as never,
+      logger,
+      undefined,
+    );
+  });
+
+  afterEach(async () => {
+    const { setActiveConfigSyncService } = await import(
+      "../services/sync/syncServiceRegistry"
+    );
+    setActiveConfigSyncService(undefined);
+    OutputChannelService.resetInstance();
+  });
+
+  it("forwards each sync message type to the active sync service", async () => {
+    await router.handleMessage({ type: "requestWebdavSyncData" });
+    expect(syncService.requestSyncData).toHaveBeenCalledTimes(1);
+
+    const serverConfig = {
+      url: "https://dav.test",
+      username: "user",
+      basePath: "/opencode-config/",
+      allowInsecureHttp: false,
+      acceptSelfSigned: false,
+    };
+    await router.handleMessage({
+      type: "saveWebdavServerConfig",
+      config: serverConfig,
+      password: "pw",
+    });
+    expect(syncService.saveServerConfig).toHaveBeenCalledWith(
+      serverConfig,
+      "pw",
+    );
+
+    const syncOptions = {
+      autoSync: { enabled: true, onStartup: true, onLocalChange: true, remotePoll: true },
+      pollIntervalMinutes: 30,
+      showStatusIcon: true,
+    };
+    await router.handleMessage({
+      type: "applyWebdavSyncOptions",
+      options: syncOptions,
+    });
+    expect(syncService.applySyncOptions).toHaveBeenCalledWith(syncOptions);
+
+    const draft = {
+      url: "https://dav.test",
+      username: "user",
+      password: "pw",
+      basePath: "/opencode-config/",
+      allowInsecureHttp: false,
+      acceptSelfSigned: false,
+    };
+    await router.handleMessage({ type: "testWebdavConnection", draft });
+    expect(syncService.testConnection).toHaveBeenCalledWith(draft);
+
+    await router.handleMessage({
+      type: "setWebdavItemEnabled",
+      id: "skills",
+      enabled: false,
+    });
+    expect(syncService.setItemEnabled).toHaveBeenCalledWith("skills", false);
+
+    await router.handleMessage({ type: "addWebdavItem", path: "themes" });
+    expect(syncService.addItem).toHaveBeenCalledWith("themes");
+
+    await router.handleMessage({ type: "removeWebdavItem", id: "themes" });
+    expect(syncService.removeItem).toHaveBeenCalledWith("themes");
+
+    await router.handleMessage({ type: "addWebdavExclude", path: "skills/drafts" });
+    expect(syncService.addExclude).toHaveBeenCalledWith("skills/drafts");
+
+    await router.handleMessage({
+      type: "removeWebdavExclude",
+      path: "skills/drafts",
+    });
+    expect(syncService.removeExclude).toHaveBeenCalledWith("skills/drafts");
+
+    await router.handleMessage({ type: "syncWebdavNow" });
+    expect(syncService.syncNow).toHaveBeenCalledTimes(1);
+
+    await router.handleMessage({ type: "requestWebdavLog" });
+    expect(syncService.requestLog).toHaveBeenCalledTimes(1);
+
+    await router.handleMessage({ type: "clearWebdavHistory" });
+    expect(syncService.clearHistory).toHaveBeenCalledTimes(1);
+
+    await router.handleMessage({
+      type: "resolveWebdavConflict",
+      id: "content:cli.json",
+      resolution: "local",
+    });
+    expect(syncService.resolveConflict).toHaveBeenCalledWith(
+      "content:cli.json",
+      "local",
+    );
+
+    await router.handleMessage({ type: "openWebdavDiff", id: "content:cli.json" });
+    expect(syncService.openDiff).toHaveBeenCalledWith("content:cli.json");
+  });
+
+  it("ignores invalid payloads instead of forwarding them", async () => {
+    await router.handleMessage({
+      type: "setWebdavItemEnabled",
+      id: 42,
+      enabled: true,
+    });
+    await router.handleMessage({ type: "removeWebdavItem", id: null });
+    await router.handleMessage({ type: "openWebdavDiff", id: 7 });
+    await router.handleMessage({ type: "addWebdavExclude", path: null });
+    await router.handleMessage({ type: "removeWebdavExclude", path: 42 });
+    expect(syncService.setItemEnabled).not.toHaveBeenCalled();
+    expect(syncService.removeItem).not.toHaveBeenCalled();
+    expect(syncService.openDiff).not.toHaveBeenCalled();
+    expect(syncService.addExclude).not.toHaveBeenCalled();
+    expect(syncService.removeExclude).not.toHaveBeenCalled();
+  });
+});
+

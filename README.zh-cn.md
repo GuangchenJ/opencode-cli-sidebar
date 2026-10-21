@@ -1,4 +1,4 @@
-# Opencode CLI Sidebar
+# OpenCode CLI Sidebar
 
 [![Visual Studio Marketplace](https://vsmarketplacebadges.dev/version-short/sagez.opencode-cli-sidebar.svg)](https://marketplace.visualstudio.com/items?itemName=sagez.opencode-cli-sidebar)
 
@@ -8,7 +8,7 @@
 
 非官方第三方扩展，与 OpenCode 团队无关。
 
-![Opencode CLI Sidebar 截图](screenshot/screenshot.webp)
+![OpenCode CLI Sidebar 截图](screenshot/screenshot.webp)
 
 ## 功能特性
 
@@ -47,7 +47,7 @@
 
 ## 使用方法
 
-1. 点击活动栏中的 Opencode CLI Sidebar 图标
+1. 点击活动栏中的 OpenCode CLI Sidebar 图标
 2. 终端视图激活时自动启动
 3. 直接在侧边栏中与 OpenCode 交互
 
@@ -55,9 +55,9 @@
 
 ### 基础命令
 
-- **Opencode CLI Sidebar: Start OpenCode** - 手动启动 OpenCode
-- **Opencode CLI Sidebar: Paste** - 粘贴文本到终端
-- **Opencode CLI Sidebar: Focus Terminal** - 聚焦侧边栏终端
+- **OpenCode CLI Sidebar: Start OpenCode** - 手动启动 OpenCode
+- **OpenCode CLI Sidebar: Paste** - 粘贴文本到终端
+- **OpenCode CLI Sidebar: Focus Terminal** - 聚焦侧边栏终端
 
 ### 文件引用命令
 
@@ -109,7 +109,7 @@
 在 OpenCode v2 下，扩展可以直接在侧边栏内更新 OpenCode CLI。
 
 - **自动检查**：激活后不久在后台检查一次（npm 官方源优先，失败时回退 npmmirror 与腾讯云 npm 镜像），之后按 `update.checkIntervalHours` 小时的间隔定期检查；未发现更新时保持安静
-- **手动检查**：在命令面板运行 `Opencode CLI Sidebar: Check for OpenCode Updates` 命令，或使用设置菜单中的检查入口
+- **手动检查**：在命令面板运行 `OpenCode CLI Sidebar: Check for OpenCode Updates` 命令，或使用设置菜单中的检查入口
 - **版本角标**：发现新版本后，工具栏的版本号即更新入口；点击弹出更新方式气泡（curl/npm/pnpm/bun/yarn/vp/brew，自动标记检测到的与上次使用的安装方式）
 - **进度与重启**：更新过程不会中断当前会话；完成后卡片提供“立即重启”，将终端切换到新版本
 - **nvm 自动处理**：在 nvm-windows 上自动执行所需的 `reshim`，遇到 nvm 防火墙拦截时自动信任并重试；自动处理失败时展示需要手动执行的命令

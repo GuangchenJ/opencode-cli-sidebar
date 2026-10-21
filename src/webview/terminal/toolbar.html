@@ -13,6 +13,17 @@
     >
       <span class="ocu-pill-text" id="ocu-version-text"></span>
     </button>
+    <button
+      type="button"
+      id="btn-dav-sync-status"
+      class="dav-sync-dot hidden"
+      aria-haspopup="true"
+      aria-expanded="false"
+      aria-label="{{t:davSyncStatus}}"
+    >
+      <span id="dav-sync-glyph"></span>
+      <span class="dav-sync-count hidden" id="dav-sync-count"></span>
+    </button>
   </div>
   <div class="toolbar-controls">
   </div>
@@ -92,6 +103,15 @@
         <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
         <path d="M4 6.5h1.2M6.8 6.5H8M9.2 6.5H10.4M11.2 6.5H12.5M4 9.5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
       </svg>
+    </button>
+    <button
+      type="button"
+      id="btn-dav-sync-panel"
+      class="toolbar-btn hidden"
+      aria-label="{{t:davOpenPanel}}"
+      title="{{t:davOpenPanel}}"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 1 0-.42-8.98 6 6 0 1 0-11.06 3.1"/><path d="M17.5 19H7a4 4 0 0 1-1.33-7.76"/></svg>
     </button>
     <div class="toolbar-sep hidden" id="toolbar-sep-oc-settings" aria-hidden="true"></div>
     <div class="settings-host">

@@ -99,6 +99,11 @@
         "command": "opencode-cli-sidebar.checkOpenCodeUpdates",
         "title": "%command.opencode-cli-sidebar.checkOpenCodeUpdates.title%",
         "category": "%command.category.opencode-cli-sidebar%"
+      },
+      {
+        "command": "opencode-cli-sidebar.webdavSyncNow",
+        "title": "%command.opencode-cli-sidebar.webdavSyncNow.title%",
+        "category": "%command.category.opencode-cli-sidebar%"
       }
     ],
     "menus": {
@@ -338,6 +343,122 @@
           "default": 24,
           "minimum": 1,
           "description": "%configuration.opencode-cli-sidebar.update.checkIntervalHours.description%"
+        },
+        "opencode-cli-sidebar.sync.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.opencode-cli-sidebar.sync.enabled.description%"
+        },
+        "opencode-cli-sidebar.sync.url": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.opencode-cli-sidebar.sync.url.description%"
+        },
+        "opencode-cli-sidebar.sync.username": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.opencode-cli-sidebar.sync.username.description%"
+        },
+        "opencode-cli-sidebar.sync.basePath": {
+          "type": "string",
+          "default": "/opencode-config/",
+          "description": "%configuration.opencode-cli-sidebar.sync.basePath.description%"
+        },
+        "opencode-cli-sidebar.sync.allowInsecureHttp": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.opencode-cli-sidebar.sync.allowInsecureHttp.description%"
+        },
+        "opencode-cli-sidebar.sync.acceptSelfSigned": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.opencode-cli-sidebar.sync.acceptSelfSigned.description%"
+        },
+        "opencode-cli-sidebar.sync.autoSyncEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.opencode-cli-sidebar.sync.autoSyncEnabled.description%"
+        },
+        "opencode-cli-sidebar.sync.autoSyncOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.opencode-cli-sidebar.sync.autoSyncOnStartup.description%"
+        },
+        "opencode-cli-sidebar.sync.autoSyncOnLocalChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.opencode-cli-sidebar.sync.autoSyncOnLocalChange.description%"
+        },
+        "opencode-cli-sidebar.sync.autoSyncRemotePoll": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.opencode-cli-sidebar.sync.autoSyncRemotePoll.description%"
+        },
+        "opencode-cli-sidebar.sync.pollIntervalMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "step": 1,
+          "description": "%configuration.opencode-cli-sidebar.sync.pollIntervalMinutes.description%"
+        },
+        "opencode-cli-sidebar.sync.rateLimitMaxRequests": {
+          "type": "number",
+          "default": 600,
+          "description": "%configuration.opencode-cli-sidebar.sync.rateLimitMaxRequests.description%"
+        },
+        "opencode-cli-sidebar.sync.rateLimitWindowMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "%configuration.opencode-cli-sidebar.sync.rateLimitWindowMinutes.description%"
+        },
+        "opencode-cli-sidebar.sync.showStatusIcon": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.opencode-cli-sidebar.sync.showStatusIcon.description%"
+        },
+        "opencode-cli-sidebar.sync.customItems": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%configuration.opencode-cli-sidebar.sync.customItems.description%"
+        },
+        "opencode-cli-sidebar.sync.disabledItems": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%configuration.opencode-cli-sidebar.sync.disabledItems.description%"
+        },
+        "opencode-cli-sidebar.sync.excludedPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%configuration.opencode-cli-sidebar.sync.excludedPaths.description%"
+        },
+        "opencode-cli-sidebar.sync.onConflict": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "preferLocal",
+            "preferRemote"
+          ],
+          "default": "prompt",
+          "description": "%configuration.opencode-cli-sidebar.sync.onConflict.description%"
+        },
+        "opencode-cli-sidebar.sync.deletions": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "ignore"
+          ],
+          "default": "prompt",
+          "description": "%configuration.opencode-cli-sidebar.sync.deletions.description%"
         }
       }
     }

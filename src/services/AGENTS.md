@@ -2,7 +2,7 @@
 
 ## Scope
 
-- `src/services` is the stateful backend: instance store/persistence/discovery/control, HTTP client, ports, native terminal backend plans, throttling, OpenCode operator helpers, context/file references, logging, and output capture.
+- `src/services` is the stateful backend: instance store/persistence/discovery/control, HTTP client, ports, native terminal backend plans, throttling, OpenCode operator helpers, context/file references, config sync, logging, and output capture.
 - The only backend type is `"native"`. There are no external multiplexer managers, pane sync services, or dashboard services in the current tree.
 
 ## Instance Layer
@@ -32,6 +32,13 @@
 
 - OpenCode-specific behavior lives in `src/services/aiTools/OpenCodeToolOperator`; the extension runs OpenCode only, so there is no registry or per-tool dispatch.
 - Formatting file refs, dropped files, pasted images, and the launch command built from the `opencode.commandPath` / `opencode.args` settings belongs there rather than in command/provider conditionals.
+
+## Config Sync
+
+- WebDAV config sync lives in `src/services/sync`: `ConfigSyncService` owns the sync state machine, `WebDavClient` the HTTP layer, `syncItems` item/path/exclusion rules, `SyncManifest` the remote baseline manifest.
+- Data safety first: ambiguous states resolve to conflicts, never silent overwrites. Local destruction paths require a successful backup first. The exception is deliberate scope exit: adding an exclusion purges the corresponding remote files without a prompt.
+- `ConfigSyncService` resolves through `syncServiceRegistry`; commands and the message router never instantiate it directly.
+- Sync passwords go to VS Code SecretStorage; never log credentials or write them to settings/state.
 
 ## Verification
 

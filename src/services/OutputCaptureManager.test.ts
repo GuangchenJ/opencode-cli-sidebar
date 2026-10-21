@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as vscode from "vscode";
+import { execSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -7,6 +8,9 @@ import { OutputCaptureManager } from "./OutputCaptureManager";
 import { OutputChannelService } from "./OutputChannelService";
 
 vi.mock("vscode");
+vi.mock("child_process", () => ({
+  execSync: vi.fn(),
+}));
 vi.mock("fs", () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
@@ -22,12 +26,10 @@ vi.mock("path", () => ({
 
 describe("OutputCaptureManager", () => {
   let manager: OutputCaptureManager;
-  let originalPath: string | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
     OutputChannelService.resetInstance();
-    originalPath = process.env.PATH;
 
     manager = new OutputCaptureManager();
 
@@ -37,10 +39,11 @@ describe("OutputCaptureManager", () => {
       parts.join("/"),
     );
     vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(execSync).mockReturnValue(Buffer.from(""));
   });
 
   afterEach(() => {
-    process.env.PATH = originalPath;
+    vi.restoreAllMocks();
   });
 
   function createTerminal(): vscode.Terminal {
@@ -63,12 +66,12 @@ describe("OutputCaptureManager", () => {
   });
 
   it("returns an installation error when script is unavailable", () => {
-    process.env.PATH = "";
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("which: not found");
+    });
 
     const terminal = createTerminal();
     const result = manager.startCapture(terminal);
-
-    process.env.PATH = originalPath;
 
     expect(result).toEqual({
       success: false,

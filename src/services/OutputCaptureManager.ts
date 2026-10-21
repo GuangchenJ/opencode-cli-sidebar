@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
+import { execSync } from "child_process";
 import { OutputChannelService } from "./OutputChannelService";
 
 export interface CaptureResult {
@@ -29,7 +30,6 @@ export class OutputCaptureManager {
     // Check if script command is available
     try {
       // Use 'which' on Unix systems to check for script command
-      const { execSync } = require("child_process");
       execSync("which script", { stdio: "ignore" });
     } catch {
       return {

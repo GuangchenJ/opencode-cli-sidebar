@@ -10,12 +10,14 @@ const titleL10nMap: Record<string, string> = {
   settings: l10n.t("Settings"),
   extensionSettings: l10n.t("Extension Settings"),
   keybindSettings: l10n.t("Keyboard Shortcut Settings"),
-  keymap: l10n.t("Opencode Keymap"),
-  openCodeCliSettings: l10n.t("Opencode CLI Config"),
+  keymap: l10n.t("OpenCode Keymap"),
+  openCodeCliSettings: l10n.t("OpenCode CLI Config"),
   openCodeGlobalAgentsMd: l10n.t("Global AGENTS.md"),
-  openCodeGlobalConfig: l10n.t("Opencode Config"),
+  openCodeGlobalConfig: l10n.t("OpenCode Config"),
   openCodeUpdate: l10n.t('Install OpenCode'),
   checkOpenCodeUpdates: l10n.t('Check for OpenCode Updates'),
+  davSyncStatus: l10n.t('Config sync status'),
+  davOpenPanel: l10n.t('OpenCode config sync'),
 };
 
 function localizeTitles(input: string): string {

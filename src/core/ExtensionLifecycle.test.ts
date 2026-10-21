@@ -127,7 +127,7 @@ describe("ExtensionLifecycle", () => {
       await lifecycle.activate(mockContext);
 
       expect(vscode.window.createOutputChannel).toHaveBeenCalledWith(
-        "Opencode CLI Sidebar",
+        "OpenCode CLI Sidebar",
         { log: true },
       );
     });
@@ -386,7 +386,7 @@ describe("ExtensionLifecycle", () => {
       expect(Reflect.get(lifecycle, "instanceStore")).toBeUndefined();
       expect(Reflect.get(lifecycle, "tuiProviderRegistration")).toBeUndefined();
       expect(logger.info).toHaveBeenLastCalledWith(
-        "Opencode CLI Sidebar deactivated",
+        "OpenCode CLI Sidebar deactivated",
       );
     });
   });

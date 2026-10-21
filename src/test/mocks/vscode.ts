@@ -147,8 +147,30 @@ export const workspace = {
     void listener;
     return { dispose: vi.fn() };
   }),
+  createFileSystemWatcher: vi.fn(() => ({
+    onDidChange: vi.fn((listener: Function) => {
+      void listener;
+      return { dispose: vi.fn() };
+    }),
+    onDidCreate: vi.fn((listener: Function) => {
+      void listener;
+      return { dispose: vi.fn() };
+    }),
+    onDidDelete: vi.fn((listener: Function) => {
+      void listener;
+      return { dispose: vi.fn() };
+    }),
+    dispose: vi.fn(),
+  })),
   findFiles: vi.fn(),
 };
+
+export class RelativePattern {
+  constructor(
+    public readonly base: any,
+    public readonly pattern: string,
+  ) {}
+}
 
 export const languages = {
   onDidChangeDiagnostics: vi.fn((listener: Function) => {
@@ -483,6 +505,7 @@ export default {
   Uri,
   Range,
   EventEmitter,
+  RelativePattern,
   CancellationTokenSource,
   ExtensionContext,
   WebviewView,
