@@ -241,6 +241,12 @@ describe("sync UI (webview)", () => {
 
       applyWebdavSyncData(snapshot({ autoSyncPaused: true }));
       expect(icon().dataset.state).toBe("error");
+
+      applyWebdavSyncData(snapshot({ state: "needsAuth" }));
+      expect(icon().dataset.state).toBe("auth");
+      expect(
+        document.getElementById("dav-sync-count")?.classList.contains("hidden"),
+      ).toBe(true);
     });
 
     it("respects the showStatusIcon master switch", () => {
@@ -384,6 +390,7 @@ describe("sync UI (webview)", () => {
         [{ pendingCount: 3 }, "items"],
         [{ state: "error" }, "log"],
         [{ autoSyncPaused: true }, "general"],
+        [{ state: "needsAuth" }, "general"],
         [{ state: "syncing" }, "general"],
       ];
       for (const [patch, pane] of cases) {
@@ -413,28 +420,23 @@ describe("sync UI (webview)", () => {
       applyWebdavSyncData(snapshot());
     });
 
-    it("labels the tooltip action per target and opens that section", () => {
+    it("opens the section from the icon itself, with no tooltip jump button", () => {
       vi.useFakeTimers();
       try {
         applyWebdavSyncData(snapshot({ conflictCount: 1 }));
         const tip = document.getElementById("dav-sync-tip") as HTMLElement;
-        const go = document.getElementById("dav-sync-tip-go") as HTMLElement;
         icon().dispatchEvent(new MouseEvent("mouseenter"));
         vi.advanceTimersByTime(400);
         expect(tip.classList.contains("hidden")).toBe(false);
-        expect(go.textContent).toBe("Resolve conflicts ›");
+        expect(document.getElementById("dav-sync-tip-go")).toBeNull();
 
-        applyWebdavSyncData(snapshot({ pendingCount: 2 }));
-        expect(go.textContent).toBe("View sync items ›");
-
-        applyWebdavSyncData(snapshot({ state: "error" }));
-        expect(go.textContent).toBe("View log ›");
-
-        go.click();
+        icon().click();
         expect(tip.classList.contains("hidden")).toBe(true);
-        expect(activePane()).toBe("log");
+        expect(overlay().classList.contains("hidden")).toBe(false);
+        expect(activePane()).toBe("conflict");
         document.getElementById("dav-modal-close")?.click();
       } finally {
+        applyWebdavSyncData(snapshot());
         vi.useRealTimers();
       }
     });
@@ -490,6 +492,44 @@ describe("sync UI (webview)", () => {
       expect(
         document.querySelector('.dav-pane[data-pane="server"]')?.classList.contains("is-on"),
       ).toBe(true);
+    });
+
+    it("shows a credentials banner tailored to missing vs rejected secrets", () => {
+      applyWebdavSyncData(
+        snapshot({ state: "needsAuth", settings: syncSettings({ passwordSet: false }) }),
+      );
+      const banner = document.getElementById("dav-auth-banner") as HTMLElement;
+      expect(banner.classList.contains("hidden")).toBe(false);
+      expect(
+        document.getElementById("dav-auth-banner-text")?.textContent,
+      ).toContain("not stored on this device");
+      expect(document.getElementById("dav-sub-auth")?.hidden).toBe(false);
+
+      document.querySelector<HTMLButtonElement>('[data-pane="general"]')?.click();
+      document.getElementById("dav-auth-go")?.click();
+      expect(
+        document.querySelector('.dav-pane[data-pane="server"]')?.classList.contains("is-on"),
+      ).toBe(true);
+      expect(document.activeElement?.id).toBe("dav-f-pass");
+
+      applyWebdavSyncData(
+        snapshot({ state: "needsAuth", settings: syncSettings({ passwordSet: true }) }),
+      );
+      expect(
+        document.getElementById("dav-auth-banner-text")?.textContent,
+      ).toContain("rejected the stored credentials");
+
+      applyWebdavSyncData(snapshot());
+      expect(banner.classList.contains("hidden")).toBe(true);
+      expect(document.getElementById("dav-sub-auth")?.hidden).toBe(true);
+    });
+
+    it("reports required credentials in the footer", () => {
+      applyWebdavSyncData(snapshot({ state: "needsAuth" }));
+      expect(document.getElementById("dav-foot-st")?.textContent).toBe(
+        "Credentials required · enter the password in Server settings",
+      );
+      applyWebdavSyncData(snapshot());
     });
 
     it("lazy-loads the log on section entry", () => {
@@ -737,6 +777,103 @@ describe("sync UI (webview)", () => {
       expect(
         document.querySelector('.dav-pane[data-pane="conflict"]')?.classList.contains("is-on"),
       ).toBe(true);
+    });
+
+    it("multi-selects conflicts and posts one batch decision", () => {
+      applyWebdavSyncData(
+        snapshot({
+          conflictCount: 3,
+          conflicts: [
+            { id: "c1", path: "AGENTS.md", kind: "content", localSize: 1 },
+            { id: "c2", path: "skills/tool.md", kind: "remoteDeleted" },
+            { id: "c3", path: "opencode.json", kind: "localDeleted" },
+          ],
+        }),
+      );
+      const bar = document.getElementById("dav-conflict-bar") as HTMLElement;
+      const all = document.getElementById("dav-conflict-all") as HTMLInputElement;
+      const keep = document.getElementById("dav-conflict-keep") as HTMLButtonElement;
+      const use = document.getElementById("dav-conflict-use") as HTMLButtonElement;
+      expect(bar.classList.contains("hidden")).toBe(false);
+      expect(document.getElementById("dav-conflict-all-label")?.textContent).toBe("Select all");
+      expect(keep.textContent).toBe("Keep local");
+      expect(use.textContent).toBe("Use remote");
+      expect(all.checked).toBe(false);
+      expect(all.indeterminate).toBe(false);
+      expect(keep.disabled).toBe(true);
+      expect(use.disabled).toBe(true);
+
+      // One card selected: actions unlock, select-all goes indeterminate.
+      const first = document.querySelector<HTMLInputElement>('[data-select="c1"]')!;
+      first.checked = true;
+      first.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(keep.disabled).toBe(false);
+      expect(use.disabled).toBe(false);
+      expect(all.indeterminate).toBe(true);
+      expect(document.getElementById("dav-conflict-sel")?.textContent).toBe("1 selected");
+      expect(
+        document.querySelector('[data-id="c1"]')?.classList.contains("is-selected"),
+      ).toBe(true);
+
+      // Select-all covers every card.
+      all.checked = true;
+      all.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(document.querySelectorAll(".dav-conflict-check:checked")).toHaveLength(3);
+      expect(all.checked).toBe(true);
+      expect(all.indeterminate).toBe(false);
+      expect(document.getElementById("dav-conflict-sel")?.textContent).toBe("3 selected");
+
+      // Deselect one and batch-resolve the remaining two.
+      const second = document.querySelector<HTMLInputElement>('[data-select="c2"]')!;
+      second.checked = false;
+      second.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(all.indeterminate).toBe(true);
+      keep.click();
+      expect(posted().pop()).toEqual({
+        type: "resolveWebdavConflicts",
+        ids: ["c1", "c3"],
+        resolution: "local",
+      });
+      // Sending consumes the selection; the list stays until the snapshot.
+      expect(keep.disabled).toBe(true);
+      expect(document.querySelector(".dav-conflict-card.is-selected")).toBeNull();
+
+      applyWebdavSyncData(snapshot());
+      expect(bar.classList.contains("hidden")).toBe(true);
+    });
+
+    it("prunes vanished selections and posts a remote batch", () => {
+      applyWebdavSyncData(
+        snapshot({
+          conflictCount: 2,
+          conflicts: [
+            { id: "c1", path: "AGENTS.md", kind: "content" },
+            { id: "c2", path: "skills/tool.md", kind: "remoteDeleted" },
+          ],
+        }),
+      );
+      const all = document.getElementById("dav-conflict-all") as HTMLInputElement;
+      all.checked = true;
+      all.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(document.getElementById("dav-conflict-sel")?.textContent).toBe("2 selected");
+
+      // A fresh snapshot dropped c2: it must leave the selection too.
+      applyWebdavSyncData(
+        snapshot({
+          conflictCount: 1,
+          conflicts: [{ id: "c1", path: "AGENTS.md", kind: "content" }],
+        }),
+      );
+      expect(document.getElementById("dav-conflict-sel")?.textContent).toBe("1 selected");
+      expect(all.checked).toBe(true);
+
+      document.getElementById("dav-conflict-use")?.click();
+      expect(posted().pop()).toEqual({
+        type: "resolveWebdavConflicts",
+        ids: ["c1"],
+        resolution: "remote",
+      });
+      applyWebdavSyncData(snapshot());
     });
 
     it("requests a fresh snapshot when conflicts appear or grow", () => {
@@ -1012,6 +1149,29 @@ describe("sync UI (webview)", () => {
       expect(document.getElementById("dav-foot-st")?.textContent).toContain("10:32");
     });
 
+    it("turns the sync-now button into a busy state while syncing", () => {
+      applyWebdavSyncData(snapshot());
+      const btn = document.getElementById("dav-foot-sync") as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+      expect(btn.classList.contains("is-loading")).toBe(false);
+      expect(btn.getAttribute("aria-busy")).toBe("false");
+      expect(btn.textContent).toBe("Sync now");
+
+      applyWebdavStatus({ state: "syncing" });
+      expect(btn.disabled).toBe(true);
+      expect(btn.classList.contains("is-loading")).toBe(true);
+      expect(btn.getAttribute("aria-busy")).toBe("true");
+      expect(btn.textContent).toBe("Syncing…");
+      expect(btn.querySelector("svg")).toBeTruthy();
+
+      // Any terminal state restores the action.
+      applyWebdavStatus({ state: "idle" });
+      expect(btn.disabled).toBe(false);
+      expect(btn.classList.contains("is-loading")).toBe(false);
+      expect(btn.getAttribute("aria-busy")).toBe("false");
+      expect(btn.textContent).toBe("Sync now");
+    });
+
     it("renders pushed log lines", () => {
       applyWebdavLog(["a", "b"]);
       expect(document.getElementById("dav-log-pre")?.textContent).toBe("a\nb");
@@ -1091,6 +1251,16 @@ describe("sync UI (webview)", () => {
       });
       expect(info?.kind).toBe("conflict");
       expect(info?.count).toBe(2);
+    });
+
+    it("surfaces required credentials above pending counts", () => {
+      const s = mergeSnapshot(initialSyncUiState(), snapshot());
+      const info = syncIconInfo({
+        ...s,
+        state: "needsAuth",
+        pendingCount: 3,
+      });
+      expect(info?.kind).toBe("auth");
     });
   });
 });

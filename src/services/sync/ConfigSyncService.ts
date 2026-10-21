@@ -157,6 +157,11 @@ export function webdavSecretKey(url: string, username: string): string {
   return `webdav.password.${digest.slice(0, 12)}`;
 }
 
+/** Inputs that decide which stored secret applies and whether sync is on. */
+function needsAuthConfigKey(config: SyncEngineConfig): string {
+  return JSON.stringify([config.enabled, config.url, config.username]);
+}
+
 export type SyncActionType =
   | "none"
   | "agree"
@@ -300,6 +305,9 @@ export class ConfigSyncService implements vscode.Disposable {
   public readonly onDidChange = this._onDidChange.event;
 
   private state: WebDavSyncState = "unconfigured";
+  /** Connection inputs captured when the credentials state was entered, so
+   *  a later settings edit can tell whether the verdict is still relevant. */
+  private needsAuthConfigKey: string | undefined;
   private autoSyncPaused = false;
   private pendingCount = 0;
   /** Remote deletions completed by an exclude purge, reported by the next pass. */
@@ -354,6 +362,7 @@ export class ConfigSyncService implements vscode.Disposable {
         this.logger.debug(
           "[WebDavSync] sync settings changed; re-arming triggers",
         );
+        this.clearNeedsAuthIfConfigChanged();
         this.armTriggers();
       }),
     );
@@ -857,243 +866,278 @@ export class ConfigSyncService implements vscode.Disposable {
     id: string,
     resolution: "local" | "remote",
   ): Promise<void> {
-    const conflict = this.conflicts.get(id);
-    if (!conflict) {
-      return;
-    }
+    await this.resolveConflicts([id], resolution);
+  }
+
+  /** Batch variant: one exclusive pass and one snapshot refresh for the
+   *  whole selection, so resolving a long conflict list does not queue a
+   *  pass per file. Unknown or already-resolved ids are skipped. */
+  public async resolveConflicts(
+    ids: string[],
+    resolution: "local" | "remote",
+  ): Promise<void> {
     const config = readSyncConfig();
     if (!config.enabled || !config.url) {
+      return;
+    }
+    const targets = [...new Set(ids)];
+    if (targets.length === 0) {
       return;
     }
     // Resolution and the sync transfer phase share one manifest; their
     // read-modify-write cycles must never interleave.
     await this.enqueueExclusive(async () => {
-      const current = this.conflicts.get(id);
-      if (!current) {
-        return;
-      }
-      let reconflicted = false;
-      const recordConflict = (entry: WebDavConflictEntry): void => {
-        for (const key of [...this.conflicts.keys()]) {
-          if (this.conflicts.get(key)?.path === entry.path) {
-            this.conflicts.delete(key);
-          }
+      let failed = 0;
+      for (const id of targets) {
+        const current = this.conflicts.get(id);
+        if (!current) {
+          continue;
         }
-        this.conflicts.set(entry.id, entry);
-        reconflicted = true;
-      };
-      try {
-        const client = await this.createClientFromSettings(config);
         const rel = current.path;
-        const abs = this.toAbsoluteLocalPath(rel);
-        let localStat: fs.Stats | undefined;
         try {
-          localStat = await fs.promises.stat(abs);
-        } catch {
-          localStat = undefined;
-        }
-        const manifest = new SyncManifest(this.globalStoragePath());
-        await manifest.load();
-        switch (current.kind) {
-          case "content":
-            if (resolution === "local") {
-              // Overwrite only the version the user reviewed. A change
-              // landing since the conflict was detected surfaces as a
-              // fresh conflict instead of being silently destroyed.
-              const remoteStat = await this.statRemoteFile(client, rel);
-              if (
-                remoteStat &&
-                !this.remoteStateMatchesConflict(current, remoteStat)
-              ) {
-                recordConflict(
-                  this.conflictEntry(
-                    rel,
-                    "content",
-                    localStat,
-                    remoteStat,
-                    "remoteChanged",
-                  ),
-                );
-                this.log(
-                  "warn",
-                  `conflict kept; the server copy changed since it was detected: ${rel}`,
-                );
-                break;
-              }
-              await this.uploadFile(
-                client,
-                rel,
-                abs,
-                manifest,
-                new Set(),
-                true,
-                {
-                  exists: remoteStat !== null,
-                  etag: remoteStat?.etag ?? null,
-                },
-                recordConflict,
-              );
-            } else {
-              await this.downloadFile(
-                client,
-                rel,
-                abs,
-                manifest,
-                null,
-                null,
-                null,
-                recordConflict,
-              );
-            }
-            break;
-          case "localDeleted":
-            if (resolution === "local") {
-              const remoteStat = await this.statRemoteFile(client, rel);
-              if (!remoteStat) {
-                manifest.remove(rel);
-              } else if (
-                !this.remoteStateMatchesConflict(current, remoteStat)
-              ) {
-                // Never delete a server copy the user has not seen.
-                recordConflict(
-                  this.conflictEntry(
-                    rel,
-                    "localDeleted",
-                    localStat,
-                    remoteStat,
-                    "remoteChanged",
-                  ),
-                );
-                this.log(
-                  "warn",
-                  `conflict kept; the server copy changed since it was detected: ${rel}`,
-                );
-              } else {
-                try {
-                  await client.del(
-                    rel,
-                    remoteStat.etag ? { ifMatch: remoteStat.etag } : undefined,
-                  );
-                  manifest.remove(rel);
-                } catch (error) {
-                  if (error instanceof PreconditionFailedError) {
-                    const latest = await this.statRemoteFile(client, rel).catch(
-                      () => undefined,
-                    );
-                    if (latest === null) {
-                      manifest.remove(rel);
-                    } else {
-                      recordConflict(
-                        this.conflictEntry(
-                          rel,
-                          "localDeleted",
-                          localStat,
-                          latest ?? remoteStat,
-                          "preconditionFailed",
-                        ),
-                      );
-                      this.log(
-                        "warn",
-                        `conflict kept; the server copy changed during resolution: ${rel}`,
-                      );
-                    }
-                  } else {
-                    throw error;
-                  }
-                }
-              }
-            } else {
-              await this.downloadFile(
-                client,
-                rel,
-                abs,
-                manifest,
-                null,
-                null,
-                null,
-                recordConflict,
-              );
-            }
-            break;
-          case "remoteDeleted":
-            if (resolution === "local") {
-              // A recreated remote is a version the user never reviewed;
-              // do not clobber it just because they picked "keep local"
-              // over the old deletion.
-              const remoteStat = await this.statRemoteFile(client, rel);
-              if (remoteStat) {
-                recordConflict(
-                  this.conflictEntry(
-                    rel,
-                    "content",
-                    localStat,
-                    remoteStat,
-                    "remoteChanged",
-                  ),
-                );
-                this.log(
-                  "warn",
-                  `conflict kept; the server copy was recreated since it was detected: ${rel}`,
-                );
-                break;
-              }
-              await this.uploadFile(
-                client,
-                rel,
-                abs,
-                manifest,
-                new Set(),
-                true,
-                { exists: false, etag: null },
-                recordConflict,
-              );
-            } else {
-              const backedUp = await this.backupLocalFile(abs, rel);
-              if (!backedUp) {
-                // Never delete the local copy without a backup.
-                recordConflict(
-                  this.conflictEntry(
-                    rel,
-                    "remoteDeleted",
-                    undefined,
-                    undefined,
-                    "backupFailed",
-                  ),
-                );
-                this.log(
-                  "warn",
-                  `conflict kept; backup failed before deleting the local file: ${rel}`,
-                );
-              } else {
-                await fs.promises.rm(abs, { force: true });
-                manifest.remove(rel);
-              }
-            }
-            break;
-        }
-        await manifest.save();
-        if (reconflicted) {
-          this.log("warn", `conflict resolution incomplete; conflict kept for ${rel}`);
-        } else {
-          this.conflicts.delete(id);
-          this.log(
-            "info",
-            `conflict resolved (${current.kind}/${resolution}): ${rel}`,
+          const reconflicted = await this.resolveConflictEntry(
+            config,
+            current,
+            resolution,
+          );
+          if (reconflicted) {
+            this.log(
+              "warn",
+              `conflict resolution incomplete; conflict kept for ${rel}`,
+            );
+          } else {
+            this.conflicts.delete(id);
+            this.log(
+              "info",
+              `conflict resolved (${current.kind}/${resolution}): ${rel}`,
+            );
+          }
+        } catch (error) {
+          failed += 1;
+          this.logger.error(
+            `[WebDavSync] failed to resolve conflict ${id}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
           );
         }
-        this.pushDelta({ conflictCount: this.conflicts.size });
-        await this.requestSyncData();
-      } catch (error) {
-        this.logger.error(
-          `[WebDavSync] failed to resolve conflict ${id}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+      }
+      this.pushDelta({ conflictCount: this.conflicts.size });
+      await this.requestSyncData();
+      if (failed > 0) {
         void vscode.window.showErrorMessage(
-          l10n.t("Could not resolve the sync conflict."),
+          failed === 1
+            ? l10n.t("Could not resolve the sync conflict.")
+            : l10n.t("Could not resolve {0} sync conflicts.", failed),
         );
       }
     });
+  }
+
+  private async resolveConflictEntry(
+    config: SyncEngineConfig,
+    current: WebDavConflictEntry,
+    resolution: "local" | "remote",
+  ): Promise<boolean> {
+    let reconflicted = false;
+    const recordConflict = (entry: WebDavConflictEntry): void => {
+      for (const key of [...this.conflicts.keys()]) {
+        if (this.conflicts.get(key)?.path === entry.path) {
+          this.conflicts.delete(key);
+        }
+      }
+      this.conflicts.set(entry.id, entry);
+      reconflicted = true;
+    };
+    const client = await this.createClientFromSettings(config);
+    const rel = current.path;
+    const abs = this.toAbsoluteLocalPath(rel);
+    let localStat: fs.Stats | undefined;
+    try {
+      localStat = await fs.promises.stat(abs);
+    } catch {
+      localStat = undefined;
+    }
+    const manifest = new SyncManifest(this.globalStoragePath());
+    await manifest.load();
+    switch (current.kind) {
+      case "content":
+        if (resolution === "local") {
+          // Overwrite only the version the user reviewed. A change
+          // landing since the conflict was detected surfaces as a
+          // fresh conflict instead of being silently destroyed.
+          const remoteStat = await this.statRemoteFile(client, rel);
+          if (
+            remoteStat &&
+            !this.remoteStateMatchesConflict(current, remoteStat)
+          ) {
+            recordConflict(
+              this.conflictEntry(
+                rel,
+                "content",
+                localStat,
+                remoteStat,
+                "remoteChanged",
+              ),
+            );
+            this.log(
+              "warn",
+              `conflict kept; the server copy changed since it was detected: ${rel}`,
+            );
+            break;
+          }
+          await this.uploadFile(
+            client,
+            rel,
+            abs,
+            manifest,
+            new Set(),
+            true,
+            {
+              exists: remoteStat !== null,
+              etag: remoteStat?.etag ?? null,
+            },
+            recordConflict,
+          );
+        } else {
+          await this.downloadFile(
+            client,
+            rel,
+            abs,
+            manifest,
+            null,
+            null,
+            null,
+            recordConflict,
+          );
+        }
+        break;
+      case "localDeleted":
+        if (resolution === "local") {
+          const remoteStat = await this.statRemoteFile(client, rel);
+          if (!remoteStat) {
+            manifest.remove(rel);
+          } else if (
+            !this.remoteStateMatchesConflict(current, remoteStat)
+          ) {
+            // Never delete a server copy the user has not seen.
+            recordConflict(
+              this.conflictEntry(
+                rel,
+                "localDeleted",
+                localStat,
+                remoteStat,
+                "remoteChanged",
+              ),
+            );
+            this.log(
+              "warn",
+              `conflict kept; the server copy changed since it was detected: ${rel}`,
+            );
+          } else {
+            try {
+              await client.del(
+                rel,
+                remoteStat.etag ? { ifMatch: remoteStat.etag } : undefined,
+              );
+              manifest.remove(rel);
+            } catch (error) {
+              if (error instanceof PreconditionFailedError) {
+                const latest = await this.statRemoteFile(client, rel).catch(
+                  () => undefined,
+                );
+                if (latest === null) {
+                  manifest.remove(rel);
+                } else {
+                  recordConflict(
+                    this.conflictEntry(
+                      rel,
+                      "localDeleted",
+                      localStat,
+                      latest ?? remoteStat,
+                      "preconditionFailed",
+                    ),
+                  );
+                  this.log(
+                    "warn",
+                    `conflict kept; the server copy changed during resolution: ${rel}`,
+                  );
+                }
+              } else {
+                throw error;
+              }
+            }
+          }
+        } else {
+          await this.downloadFile(
+            client,
+            rel,
+            abs,
+            manifest,
+            null,
+            null,
+            null,
+            recordConflict,
+          );
+        }
+        break;
+      case "remoteDeleted":
+        if (resolution === "local") {
+          // A recreated remote is a version the user never reviewed;
+          // do not clobber it just because they picked "keep local"
+          // over the old deletion.
+          const remoteStat = await this.statRemoteFile(client, rel);
+          if (remoteStat) {
+            recordConflict(
+              this.conflictEntry(
+                rel,
+                "content",
+                localStat,
+                remoteStat,
+                "remoteChanged",
+              ),
+            );
+            this.log(
+              "warn",
+              `conflict kept; the server copy was recreated since it was detected: ${rel}`,
+            );
+            break;
+          }
+          await this.uploadFile(
+            client,
+            rel,
+            abs,
+            manifest,
+            new Set(),
+            true,
+            { exists: false, etag: null },
+            recordConflict,
+          );
+        } else {
+          const backedUp = await this.backupLocalFile(abs, rel);
+          if (!backedUp) {
+            // Never delete the local copy without a backup.
+            recordConflict(
+              this.conflictEntry(
+                rel,
+                "remoteDeleted",
+                undefined,
+                undefined,
+                "backupFailed",
+              ),
+            );
+            this.log(
+              "warn",
+              `conflict kept; backup failed before deleting the local file: ${rel}`,
+            );
+          } else {
+            await fs.promises.rm(abs, { force: true });
+            manifest.remove(rel);
+          }
+        }
+        break;
+    }
+    await manifest.save();
+    return reconflicted;
   }
 
   public async openDiff(id: string): Promise<void> {
@@ -1254,6 +1298,12 @@ export class ConfigSyncService implements vscode.Disposable {
     if (this.autoSyncPaused) {
       return;
     }
+    // Credentials are missing or rejected: no automatic trigger can fix
+    // that, and retrying would only hammer the server. Saving the server
+    // card (rearm) or a manual sync retries the pass.
+    if (this.state === "needsAuth") {
+      return;
+    }
     // During a rate-limit cooldown the scheduled resume owns the next
     // pass; other automatic triggers would only burn quota.
     if (this.rateLimitResumeTimer) {
@@ -1283,11 +1333,41 @@ export class ConfigSyncService implements vscode.Disposable {
     this.autoSyncPaused = false;
     this.failureStreak = 0;
     this.nextBackoffMs = FIRST_BACKOFF_MS;
+    this.needsAuthConfigKey = undefined;
     this.clearRateLimitResume();
     const config = readSyncConfig();
     this.state = config.enabled && config.url ? "idle" : "unconfigured";
     this.armTriggers();
     this.pushDelta({ state: this.state, autoSyncPaused: false });
+  }
+
+  /** Enter the credentials state and remember which connection inputs it was
+   *  based on, so unrelated option edits do not resurrect a stale verdict. */
+  private enterNeedsAuth(): void {
+    this.state = "needsAuth";
+    this.needsAuthConfigKey = needsAuthConfigKey(readSyncConfig());
+  }
+
+  /**
+   * The password is not a setting, but the URL and username decide which
+   * stored secret applies and whether sync is enabled at all. Changing them
+   * makes the previous "credentials rejected" verdict obsolete, so drop the
+   * latch and let the next automatic trigger run again. Deliberately does
+   * not start a pass: saving the server card already re-arms and syncs, and
+   * triggering here could race that save before its secret is stored.
+   */
+  private clearNeedsAuthIfConfigChanged(): void {
+    if (this.state !== "needsAuth") {
+      return;
+    }
+    const config = readSyncConfig();
+    if (this.needsAuthConfigKey === needsAuthConfigKey(config)) {
+      return;
+    }
+    this.needsAuthConfigKey = undefined;
+    this.state = config.enabled && config.url ? "idle" : "unconfigured";
+    this.log("info", "sync settings changed; credentials state cleared");
+    this.pushDelta({ state: this.state });
   }
 
   private stopAutoTimers(): void {
@@ -1366,6 +1446,27 @@ export class ConfigSyncService implements vscode.Disposable {
       this.pushDelta({ state: "unconfigured" });
       return;
     }
+    const password = await this.resolvePassword(
+      config.url,
+      config.username,
+      undefined,
+    );
+    // SecretStorage is per-device while VS Code Settings Sync carries the
+    // server config: after setup on a second machine the username often
+    // arrives without its password. Skip the network pass and surface a
+    // credentials state instead of a server error or a paused breaker.
+    if (config.username !== "" && password === undefined) {
+      const wasNeedsAuth = this.state === "needsAuth";
+      this.enterNeedsAuth();
+      if (!wasNeedsAuth) {
+        this.log(
+          "info",
+          "sync skipped: no WebDAV password is stored on this device",
+        );
+        this.pushDelta({ state: "needsAuth" });
+      }
+      return;
+    }
     this.state = "syncing";
     this.pushDelta({ state: "syncing" });
     // Visible to the catch blocks so an aborted pass can checkpoint.
@@ -1373,7 +1474,7 @@ export class ConfigSyncService implements vscode.Disposable {
     let completedUploads = 0;
     let completedDownloads = 0;
     try {
-      const client = await this.createClientFromSettings(config);
+      const client = await this.createClientFromSettings(config, password);
       const remote = await this.walkRemote(client);
       const items = deriveSyncItems(
         config.customItems,
@@ -1683,6 +1784,10 @@ export class ConfigSyncService implements vscode.Disposable {
         return;
       }
       if (error instanceof WebDavFatalError) {
+        if (error.status === 401) {
+          this.handleAuthFailure(trigger, error);
+          return;
+        }
         this.appendHistory({
           time: Date.now(),
           direction: "none",
@@ -1691,7 +1796,15 @@ export class ConfigSyncService implements vscode.Disposable {
           downloads: 0,
           deletes: this.takeExcludeDeletes(trigger),
           result: "failed",
-          message: error.message,
+          // A 403 is a permission problem (read-only share, path ACL,
+          // proxy), not a wrong password. Say so instead of echoing the
+          // client's "rejected the credentials" wording.
+          message:
+            error.status === 403
+              ? l10n.t(
+                  "The server refused the operation. Check the account permissions.",
+                )
+              : error.message,
           trigger,
         });
         this.log("warn", `sync aborted (fatal): ${error.message}`);
@@ -1706,6 +1819,32 @@ export class ConfigSyncService implements vscode.Disposable {
             );
       this.handleTransientFailure(trigger, transient);
     }
+  }
+
+  /**
+   * A 401 means the credentials themselves are wrong, not that the server
+   * is unreachable. Keep the breaker closed and point the user at the
+   * Server section instead of reporting "auto sync paused". A 403 is a
+   * permission problem and keeps the fatal/pause path.
+   */
+  private handleAuthFailure(
+    trigger: SyncTrigger,
+    error: WebDavFatalError,
+  ): void {
+    this.enterNeedsAuth();
+    this.appendHistory({
+      time: Date.now(),
+      direction: "none",
+      files: 0,
+      uploads: 0,
+      downloads: 0,
+      deletes: this.takeExcludeDeletes(trigger),
+      result: "failed",
+      message: l10n.t("The server rejected the sign-in details."),
+      trigger,
+    });
+    this.log("warn", `sync aborted (auth): ${error.message}`);
+    this.pushDelta({ state: "needsAuth" });
   }
 
   private handleTransientFailure(
@@ -2251,12 +2390,11 @@ export class ConfigSyncService implements vscode.Disposable {
 
   private async createClientFromSettings(
     config: SyncEngineConfig,
+    storedPassword?: string,
   ): Promise<WebDavClientLike> {
-    const password = await this.resolvePassword(
-      config.url,
-      config.username,
-      undefined,
-    );
+    const password =
+      storedPassword ??
+      (await this.resolvePassword(config.url, config.username, undefined));
     // Reuse the client while its inputs are unchanged so the pacing
     // window carries across passes instead of resetting every operation.
     const passwordFingerprint = crypto

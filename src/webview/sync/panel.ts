@@ -12,6 +12,7 @@ import {
 } from "./state";
 import { st } from "./strings";
 import {
+  clearConflictSelection,
   collectConnectionDraft,
   collectServerConfig,
   collectSyncOptions,
@@ -22,6 +23,9 @@ import {
   renderHistory,
   renderItems,
   renderLog,
+  selectedConflictIds,
+  setAllConflictsSelected,
+  setConflictSelected,
   syncNowButtonLabel,
 } from "./panes";
 
@@ -42,6 +46,11 @@ export function paneForStatus(state: SyncUiState): SyncPaneName {
       return "conflict";
     case "pending":
       return "items";
+    case "auth":
+      // Land on General so the credentials banner and its one-click jump
+      // to the password field are visible; the Server pane itself carries
+      // no explanation of why the user was sent there.
+      return "general";
     case "error":
       return "log";
     default:
@@ -112,6 +121,7 @@ export function openSyncPanel(pane?: SyncPaneName): void {
 }
 
 export function closeSyncPanel(): void {
+  clearConflictSelection();
   el("dav-overlay").classList.add("hidden");
 }
 
@@ -132,6 +142,9 @@ export function footerText(state: SyncUiState): string {
   const label = state.lastSyncLabel ?? st.neverSynced;
   if (state.state === "unconfigured") {
     return st.footUnconfigured;
+  }
+  if (state.state === "needsAuth") {
+    return st.footNeedsAuth;
   }
   if (state.autoSyncPaused) {
     return st.footPaused(label);
@@ -160,6 +173,10 @@ export function renderPanel(state: SyncUiState): void {
   conflict.hidden = !(state.conflictCount > 0);
   conflict.textContent = state.conflictCount > 0 ? st.hdrConflict(state.conflictCount) : "";
   el("dav-sub-paused").hidden = !state.autoSyncPaused;
+  const auth = state.state === "needsAuth";
+  const authBadge = el("dav-sub-auth");
+  authBadge.hidden = !auth;
+  authBadge.textContent = auth ? st.stNeedsAuth : "";
 
   const navCount = el("dav-nav-conflict-count");
   navCount.classList.toggle("hidden", !(state.conflictCount > 0));
@@ -168,7 +185,9 @@ export function renderPanel(state: SyncUiState): void {
   const syncing = state.state === "syncing";
   const syncBtn = el<HTMLButtonElement>("dav-foot-sync");
   syncBtn.disabled = syncing;
-  syncBtn.innerHTML = syncNowButtonLabel();
+  syncBtn.classList.toggle("is-loading", syncing);
+  syncBtn.setAttribute("aria-busy", String(syncing));
+  syncBtn.innerHTML = syncNowButtonLabel(syncing);
   el("dav-foot-st").textContent = footerText(state);
 
   renderItems(state);
@@ -180,6 +199,16 @@ export function renderPanel(state: SyncUiState): void {
   const banner = document.getElementById("dav-unconfigured-banner");
   if (banner) {
     banner.classList.toggle("hidden", state.state !== "unconfigured");
+  }
+  const authBanner = document.getElementById("dav-auth-banner");
+  if (authBanner) {
+    authBanner.classList.toggle("hidden", !auth);
+    if (auth) {
+      el("dav-auth-banner-text").textContent =
+        state.settings?.passwordSet === false
+          ? st.authBannerMissing
+          : st.authBannerRejected;
+    }
   }
 }
 
@@ -259,6 +288,10 @@ export function initPanel(handlers: {
   onExcludeAdd: (path: string) => void;
   onExcludeRemove: (path: string) => void;
   onConflictResolve: (id: string, resolution: "local" | "remote") => void;
+  onConflictResolveMany: (
+    ids: string[],
+    resolution: "local" | "remote",
+  ) => void;
   onConflictDiff: (id: string) => void;
   onClearHistory: () => void;
 }): void {
@@ -276,6 +309,11 @@ export function initPanel(handlers: {
   el("dav-btn-save").addEventListener("click", handlers.onSaveServer);
   el("dav-btn-test").addEventListener("click", handlers.onTest);
   el("dav-unconfigured-go").addEventListener("click", () => switchPane("server"));
+  el("dav-auth-go").textContent = `${st.authBannerGo} ›`;
+  el("dav-auth-go").addEventListener("click", () => {
+    switchPane("server");
+    el<HTMLInputElement>("dav-f-pass").focus();
+  });
 
   document
     .querySelectorAll<HTMLButtonElement>("#dav-nav .dav-nav-item")
@@ -377,7 +415,39 @@ export function initPanel(handlers: {
     }
   });
 
-  // Conflict list: delegated resolve / diff.
+  // Conflict list: delegated resolve / diff, plus multi-select for batch
+  // decisions. The bar labels stay out of the shell so they follow the
+  // injected locale like every other runtime string.
+  el("dav-conflict-all-label").textContent = st.ckSelectAll;
+  const keepSelected = el<HTMLButtonElement>("dav-conflict-keep");
+  keepSelected.textContent = st.ckKeepLocal;
+  keepSelected.title = st.ckKeepLocalSelected;
+  keepSelected.setAttribute("aria-label", st.ckKeepLocalSelected);
+  const useSelected = el<HTMLButtonElement>("dav-conflict-use");
+  useSelected.textContent = st.ckUseRemote;
+  useSelected.title = st.ckUseRemoteSelected;
+  useSelected.setAttribute("aria-label", st.ckUseRemoteSelected);
+
+  el("dav-conflict-list").addEventListener("change", (event) => {
+    const target = event.target as HTMLInputElement;
+    if (target.classList.contains("dav-conflict-check")) {
+      setConflictSelected(target.dataset.select ?? "", target.checked);
+    }
+  });
+  el<HTMLInputElement>("dav-conflict-all").addEventListener("change", (event) => {
+    setAllConflictsSelected((event.target as HTMLInputElement).checked);
+  });
+  const resolveSelected = (resolution: "local" | "remote"): void => {
+    const ids = selectedConflictIds();
+    if (ids.length === 0) {
+      return;
+    }
+    clearConflictSelection();
+    handlers.onConflictResolveMany(ids, resolution);
+  };
+  keepSelected.addEventListener("click", () => resolveSelected("local"));
+  useSelected.addEventListener("click", () => resolveSelected("remote"));
+
   el("dav-conflict-list").addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     const resolve = target.closest<HTMLElement>("[data-conflict]");

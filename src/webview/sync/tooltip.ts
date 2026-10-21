@@ -1,16 +1,14 @@
 /**
  * Toolbar status-icon hover tooltip: a quiet one-line status preview
- * anchored under the icon, with two actions: jump to the matching panel
- * section, and dismiss the status icon until its kind changes.
+ * anchored under the icon, with a dismiss action that hides the status
+ * icon until its kind changes.
  *
  * Opens after a short hover delay, bridges the anchor gap so the pointer
- * can reach the actions, and closes on a grace-period mouseleave,
+ * can reach the dismiss action, and closes on a grace-period mouseleave,
  * Escape, or when the panel opens.
  */
-import { paneForStatus, type SyncPaneName } from "./panel";
 import type { SyncUiState } from "./state";
 import { syncStatusLine } from "./status";
-import { st } from "./strings";
 
 function el<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
@@ -22,20 +20,6 @@ const CLOSE_GRACE_MS = 200;
 let tipOpen = false;
 let openTimer: ReturnType<typeof setTimeout> | null = null;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** Action label matches the section the click lands on. */
-function openLabel(pane: SyncPaneName): string {
-  switch (pane) {
-    case "items":
-      return st.tipOpenItems;
-    case "conflict":
-      return st.tipOpenConflict;
-    case "log":
-      return st.tipOpenLog;
-    default:
-      return st.actOpenPanel;
-  }
-}
 
 function cancelOpenTimer(): void {
   if (openTimer) {
@@ -81,9 +65,8 @@ export function closeSyncTooltip(): void {
   tipOpen = false;
 }
 
-/** Refresh the status line and the jump action from state; called on
- *  every sync render so a hover started before a delta still shows
- *  fresh text and target. */
+/** Refresh the status line from state; called on every sync render so a
+ *  hover started before a delta still shows fresh text. */
 export function updateSyncTooltip(state: SyncUiState): void {
   const ic = document.getElementById("dav-sync-tip-ic");
   const text = document.getElementById("dav-sync-tip-text");
@@ -94,18 +77,10 @@ export function updateSyncTooltip(state: SyncUiState): void {
   ic.innerHTML = content.iconHtml;
   ic.style.color = content.color;
   text.textContent = content.text;
-
-  const go = document.getElementById("dav-sync-tip-go");
-  if (go) {
-    const label = openLabel(paneForStatus(state));
-    go.textContent = `${label} ›`;
-    go.setAttribute("aria-label", label);
-  }
 }
 
 /** Wire tooltip events; called from initSyncUi. */
 export function initSyncTooltip(handlers: {
-  onOpen: () => void;
   onDismiss: () => void;
 }): void {
   const anchor = el("btn-dav-sync-status");
@@ -140,12 +115,6 @@ export function initSyncTooltip(handlers: {
   tip.addEventListener("mouseleave", scheduleClose);
   // Clicking the icon opens the panel: the tooltip must never compete.
   anchor.addEventListener("click", closeSyncTooltip);
-
-  el("dav-sync-tip-go").addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeSyncTooltip();
-    handlers.onOpen();
-  });
 
   el("dav-sync-tip-close").addEventListener("click", (event) => {
     event.stopPropagation();

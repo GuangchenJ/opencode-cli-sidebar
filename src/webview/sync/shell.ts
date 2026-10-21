@@ -74,7 +74,6 @@ export function renderSyncShell(d: SyncShellStrings): string {
 <div class="dav-tip hidden" id="dav-sync-tip" role="tooltip">
   <span class="dav-tip-ic" id="dav-sync-tip-ic"></span>
   <span class="dav-tip-text" id="dav-sync-tip-text"></span>
-  <button type="button" class="dav-tip-go" id="dav-sync-tip-go"></button>
   <button type="button" class="dav-tip-close" id="dav-sync-tip-close" aria-label="${d.tipDismiss}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
 </div>
 <div class="dav-overlay hidden" id="dav-overlay">
@@ -87,6 +86,7 @@ export function renderSyncShell(d: SyncShellStrings): string {
           <span class="dav-sub" id="dav-sub-pending" hidden></span>
           <span class="dav-sub dav-sub--error" id="dav-sub-conflict" hidden></span>
           <span class="dav-sub dav-sub--error" id="dav-sub-paused" hidden></span>
+          <span class="dav-sub dav-sub--warn" id="dav-sub-auth" hidden></span>
         </div>
       </div>
       <div class="dav-header-actions">
@@ -108,6 +108,10 @@ export function renderSyncShell(d: SyncShellStrings): string {
           <div class="dav-banner dav-banner--warn hidden" id="dav-unconfigured-banner" role="status">
             <span>${d.unconfiguredBanner}</span>
             <button type="button" class="dav-btn dav-btn--secondary" id="dav-unconfigured-go">${d.unconfiguredGo} ›</button>
+          </div>
+          <div class="dav-banner dav-banner--warn hidden" id="dav-auth-banner" role="status">
+            <span id="dav-auth-banner-text"></span>
+            <button type="button" class="dav-btn dav-btn--secondary" id="dav-auth-go"></button>
           </div>
           <div class="dav-master-row">
             <label class="dav-check"><input type="checkbox" id="dav-f-master" aria-label="${d.autoSync}"><span>${d.autoSync}</span></label>
@@ -198,6 +202,16 @@ export function renderSyncShell(d: SyncShellStrings): string {
           </section>
         </div>
         <div class="dav-pane" data-pane="conflict" id="dav-pane-conflict">
+          <div class="dav-conflict-bar hidden" id="dav-conflict-bar">
+            <label class="dav-conflict-all">
+              <input type="checkbox" id="dav-conflict-all">
+              <span id="dav-conflict-all-label"></span>
+            </label>
+            <span class="dav-conflict-sel" id="dav-conflict-sel"></span>
+            <span class="dav-conflict-bar-spacer"></span>
+            <button type="button" class="dav-btn dav-btn--secondary" id="dav-conflict-keep" disabled></button>
+            <button type="button" class="dav-btn dav-btn--secondary" id="dav-conflict-use" disabled></button>
+          </div>
           <div id="dav-conflict-list"></div>
         </div>
         <div class="dav-pane" data-pane="history" id="dav-pane-history">

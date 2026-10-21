@@ -1975,7 +1975,7 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-sync-dot:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); }
 .dav-sync-dot:focus-visible { outline: 1px solid var(--vscode-focusBorder, #007fd4); }
 .dav-sync-dot[data-state="syncing"] { color: var(--vscode-focusBorder, #007fd4); }
-.dav-sync-dot[data-state="pending"] { color: var(--vscode-editorWarning-foreground, #cca700); }
+.dav-sync-dot[data-state="pending"], .dav-sync-dot[data-state="auth"] { color: var(--vscode-editorWarning-foreground, #cca700); }
 .dav-sync-dot[data-state="conflict"], .dav-sync-dot[data-state="error"] { color: var(--vscode-errorForeground, #f87171); }
 .dav-sync-dot.hidden { display: none; }
 .dav-sync-count { font-size: 10px; font-weight: 600; }
@@ -2008,10 +2008,16 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
   outline: 1px solid var(--vscode-focusBorder, #007fd4);
   font-weight: 600;
 }
+/* Sync-now keeps a spinner while a pass is already running. */
+.dav-btn.is-loading svg { animation: dav-spin 0.9s linear infinite; }
+@keyframes dav-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .dav-btn.is-loading svg { animation: none; }
+}
 
 /* Toolbar icon hover tooltip (JS-anchored fixed because the sync shell
    renders outside the toolbar). Quiet one-line status preview with a
-   section jump and a dismiss action. */
+   dismiss action. */
 .dav-tip {
   position: fixed; z-index: 2100;
   display: flex; align-items: center; gap: 8px;
@@ -2025,13 +2031,6 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-tip.hidden { display: none; }
 .dav-tip-ic { display: inline-flex; }
 .dav-tip-text { color: var(--vscode-foreground, #d4d4d4); }
-.dav-tip-go {
-  display: inline-flex; align-items: center; white-space: nowrap;
-  border: none; border-radius: 3px; padding: 1px 5px;
-  background: none; color: var(--vscode-textLink-foreground, var(--vscode-focusBorder, #007fd4));
-  font-size: 11px; font-family: inherit; cursor: pointer;
-}
-.dav-tip-go:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.12)); }
 .dav-tip-close {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; padding: 0; border: none; border-radius: 4px;
@@ -2063,6 +2062,7 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-sub-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; margin-top: 2px; }
 .dav-sub { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
 .dav-sub--error { color: var(--vscode-errorForeground, #f87171); }
+.dav-sub--warn { color: var(--vscode-editorWarning-foreground, #cca700); }
 .dav-header-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .dav-icon-btn {
   background: none; border: none; color: var(--vscode-descriptionForeground, #8a8a8a);
@@ -2252,10 +2252,37 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-add-row input.is-error { border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground, #ef4444)); }
 
 /* Conflict pane */
+.dav-conflict-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding-bottom: 10px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, #2e2e2e);
+}
+.dav-conflict-bar.hidden { display: none; }
+.dav-conflict-all {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a);
+  cursor: pointer;
+}
+.dav-conflict-all input[type="checkbox"] {
+  margin: 0; accent-color: var(--vscode-focusBorder, #007fd4);
+}
+.dav-conflict-sel { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
+.dav-conflict-bar-spacer { flex: 1; }
 .dav-conflict-card {
   border: 1px solid var(--vscode-panel-border, #2e2e2e);
   border-left: 3px solid var(--vscode-errorForeground, #f87171);
   border-radius: 6px; padding: 10px 12px; margin-bottom: 10px;
+}
+.dav-conflict-card.is-selected {
+  border-color: color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 55%, var(--vscode-panel-border, #2e2e2e));
+  border-left-color: var(--vscode-errorForeground, #f87171);
+  background: color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 7%, transparent);
+}
+.dav-conflict-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.dav-conflict-head .dav-conflict-path { flex: 1; min-width: 0; margin-bottom: 0; }
+.dav-conflict-check {
+  flex-shrink: 0; margin: 1px 0 0; cursor: pointer;
+  accent-color: var(--vscode-focusBorder, #007fd4);
 }
 .dav-conflict-path { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; margin-bottom: 8px; word-break: break-all; }
 .dav-conflict-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); margin-bottom: 10px; }

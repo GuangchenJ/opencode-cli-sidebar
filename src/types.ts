@@ -105,6 +105,8 @@ export type WebviewMessage =
   /** Wipe the persisted sync history from the history pane toolbar. */
   | { type: "clearWebdavHistory" }
   | { type: "resolveWebdavConflict"; id: string; resolution: "local" | "remote" }
+  /** Resolve a multi-selected set of conflicts under one exclusive pass. */
+  | { type: "resolveWebdavConflicts"; ids: string[]; resolution: "local" | "remote" }
   /** Open a VS Code diff editor for one side of a conflict. */
   | { type: "openWebdavDiff"; id: string }
   /** Open the OpenCode config directory in the OS file manager. */
@@ -338,7 +340,13 @@ export interface WebDavConflictEntry {
   reason?: string;
 }
 
-export type WebDavSyncState = "unconfigured" | "idle" | "syncing" | "error";
+export type WebDavSyncState =
+  | "unconfigured"
+  | "idle"
+  | "syncing"
+  | "error"
+  /** Password missing on this device or rejected by the server. */
+  | "needsAuth";
 
 export type WebDavHistoryDirection = "up" | "down" | "both" | "none";
 

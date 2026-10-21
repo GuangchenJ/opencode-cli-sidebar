@@ -1273,6 +1273,7 @@ describe("MessageRouter WebDAV sync branches", () => {
       requestLog: vi.fn(async () => undefined),
       clearHistory: vi.fn(async () => undefined),
       resolveConflict: vi.fn(async () => undefined),
+      resolveConflicts: vi.fn(async () => undefined),
       openDiff: vi.fn(async () => undefined),
     };
   }
@@ -1435,6 +1436,16 @@ describe("MessageRouter WebDAV sync branches", () => {
       "local",
     );
 
+    await router.handleMessage({
+      type: "resolveWebdavConflicts",
+      ids: ["content:cli.json", "content:AGENTS.md"],
+      resolution: "remote",
+    });
+    expect(syncService.resolveConflicts).toHaveBeenCalledWith(
+      ["content:cli.json", "content:AGENTS.md"],
+      "remote",
+    );
+
     await router.handleMessage({ type: "openWebdavDiff", id: "content:cli.json" });
     expect(syncService.openDiff).toHaveBeenCalledWith("content:cli.json");
   });
@@ -1449,11 +1460,22 @@ describe("MessageRouter WebDAV sync branches", () => {
     await router.handleMessage({ type: "openWebdavDiff", id: 7 });
     await router.handleMessage({ type: "addWebdavExclude", path: null });
     await router.handleMessage({ type: "removeWebdavExclude", path: 42 });
+    await router.handleMessage({
+      type: "resolveWebdavConflicts",
+      ids: [],
+      resolution: "local",
+    });
+    await router.handleMessage({
+      type: "resolveWebdavConflicts",
+      ids: [1],
+      resolution: "local",
+    });
     expect(syncService.setItemEnabled).not.toHaveBeenCalled();
     expect(syncService.removeItem).not.toHaveBeenCalled();
     expect(syncService.openDiff).not.toHaveBeenCalled();
     expect(syncService.addExclude).not.toHaveBeenCalled();
     expect(syncService.removeExclude).not.toHaveBeenCalled();
+    expect(syncService.resolveConflicts).not.toHaveBeenCalled();
   });
 });
 

@@ -2,8 +2,8 @@
  * WebDAV config sync UI (webview side).
  *
  * Browser-only; all host I/O goes through WebviewMessage. Layers:
- * L0 toolbar status icon + cloud entry button, L1 hover tooltip with a
- * section jump, L2 full panel (km-modal pattern) with
+ * L0 toolbar status icon + cloud entry button, L1 hover status tooltip,
+ * L2 full panel (km-modal pattern) with
  * server/items/conflicts/history/log.
  */
 import { postMessage } from "../shared/vscode-api";
@@ -98,6 +98,7 @@ const ICON_KIND_STATE: Record<string, string> = {
   conflict: "conflict",
   error: "error",
   paused: "error",
+  auth: "auth",
   syncing: "syncing",
   pending: "pending",
 };
@@ -112,6 +113,8 @@ function iconLabel(info: NonNullable<ReturnType<typeof syncIconInfo>>): string {
       return st.iconSyncing;
     case "paused":
       return st.iconPaused;
+    case "auth":
+      return st.iconAuth;
     default:
       return st.iconError;
   }
@@ -160,7 +163,9 @@ function renderIcon(): void {
         ? SYNC_ICONS.up
         : info.kind === "conflict"
           ? SYNC_ICONS.warn
-          : SYNC_ICONS.off;
+          : info.kind === "auth"
+            ? SYNC_ICONS.key
+            : SYNC_ICONS.off;
   glyph.innerHTML =
     info.kind === "syncing"
       ? `<span class="dav-blink">${iconHtml}</span>`
@@ -319,10 +324,7 @@ export function initSyncUi(): void {
     openSyncPanel(paneForStatus(state));
   });
 
-  initSyncTooltip({
-    onOpen: () => openSyncPanel(paneForStatus(state)),
-    onDismiss: dismissStatusIcon,
-  });
+  initSyncTooltip({ onDismiss: dismissStatusIcon });
 
   initPanel({
     onSyncNow: () => postMessage({ type: "syncWebdavNow" }),
@@ -370,6 +372,8 @@ export function initSyncUi(): void {
     },
     onConflictResolve: (id, resolution) =>
       postMessage({ type: "resolveWebdavConflict", id, resolution }),
+    onConflictResolveMany: (ids, resolution) =>
+      postMessage({ type: "resolveWebdavConflicts", ids, resolution }),
     onConflictDiff: (id) => postMessage({ type: "openWebdavDiff", id }),
     onClearHistory: () => postMessage({ type: "clearWebdavHistory" }),
   });

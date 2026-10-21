@@ -246,21 +246,118 @@ function conflictReason(kind: WebDavConflictEntry["kind"]): string {
   }
 }
 
+/** Multi-select state for batch decisions; pruned against the rendered
+ *  conflicts on every render so stale ids cannot leak into a batch. */
+const selectedConflicts = new Set<string>();
+
+/** Mirror the selection set into the batch bar, select-all state and
+ *  the highlighted cards. Reads the DOM for the current conflict rows. */
+function refreshConflictBar(): void {
+  const checks = Array.from(
+    document.querySelectorAll<HTMLInputElement>(".dav-conflict-check"),
+  );
+  let selected = 0;
+  for (const check of checks) {
+    const id = check.dataset.select ?? "";
+    const on = selectedConflicts.has(id);
+    check.checked = on;
+    check
+      .closest<HTMLElement>(".dav-conflict-card")
+      ?.classList.toggle("is-selected", on);
+    if (on) {
+      selected += 1;
+    }
+  }
+  const total = checks.length;
+  const bar = document.getElementById("dav-conflict-bar");
+  if (!bar) {
+    return;
+  }
+  bar.classList.toggle("hidden", total === 0);
+  const all = document.getElementById(
+    "dav-conflict-all",
+  ) as HTMLInputElement | null;
+  if (all) {
+    all.disabled = total === 0;
+    all.checked = total > 0 && selected === total;
+    all.indeterminate = selected > 0 && selected < total;
+  }
+  const count = document.getElementById("dav-conflict-sel");
+  if (count) {
+    count.textContent = selected > 0 ? st.ckSelected(selected) : "";
+  }
+  for (const id of ["dav-conflict-keep", "dav-conflict-use"]) {
+    const button = document.getElementById(id) as HTMLButtonElement | null;
+    if (button) {
+      button.disabled = selected === 0;
+    }
+  }
+}
+
+export function setConflictSelected(id: string, selected: boolean): void {
+  if (selected) {
+    selectedConflicts.add(id);
+  } else {
+    selectedConflicts.delete(id);
+  }
+  refreshConflictBar();
+}
+
+export function setAllConflictsSelected(selected: boolean): void {
+  selectedConflicts.clear();
+  if (selected) {
+    document
+      .querySelectorAll<HTMLInputElement>(".dav-conflict-check")
+      .forEach((check) => {
+        if (check.dataset.select) {
+          selectedConflicts.add(check.dataset.select);
+        }
+      });
+  }
+  refreshConflictBar();
+}
+
+/** Selected ids in list order for a batch action. */
+export function selectedConflictIds(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLInputElement>(".dav-conflict-check"),
+  )
+    .map((check) => check.dataset.select ?? "")
+    .filter((id) => id !== "" && selectedConflicts.has(id));
+}
+
+export function clearConflictSelection(): void {
+  selectedConflicts.clear();
+  refreshConflictBar();
+}
+
 export function renderConflicts(state: SyncUiState): void {
   const host = el("dav-conflict-list");
   if (!host) {
     return;
   }
+  const liveIds = new Set(state.conflicts.map((conflict) => conflict.id));
+  for (const id of [...selectedConflicts]) {
+    if (!liveIds.has(id)) {
+      selectedConflicts.delete(id);
+    }
+  }
   if (state.conflicts.length === 0) {
+    selectedConflicts.clear();
     host.innerHTML = `<div class="dav-empty">${st.conflictEmpty}</div>`;
+    refreshConflictBar();
     return;
   }
   host.innerHTML =
     state.conflicts
-      .map(
-        (c) => `
-  <div class="dav-conflict-card" data-id="${escapeHtml(c.id)}">
-    <div class="dav-conflict-path">${escapeHtml(c.path)}</div>
+      .map((c) => {
+        const selected = selectedConflicts.has(c.id);
+        return `
+  <div class="dav-conflict-card${selected ? " is-selected" : ""}" data-id="${escapeHtml(c.id)}">
+    <div class="dav-conflict-head">
+      <input type="checkbox" class="dav-conflict-check" data-select="${escapeHtml(c.id)}" aria-label="${escapeHtml(c.path)}"${selected ? " checked" : ""}>
+      <div class="dav-conflict-path" title="${escapeHtml(c.path)}">${escapeHtml(c.path)}</div>
+    </div>
     <div class="dav-conflict-meta">
       <span>${st.ckLocal} <b>${formatMtime(c.localMtime)} · ${formatBytes(c.localSize)}</b></span>
       <span>${st.ckRemote} <b>${formatMtime(c.remoteMtime)} · ${formatBytes(c.remoteSize)}</b></span>
@@ -271,9 +368,10 @@ export function renderConflicts(state: SyncUiState): void {
       <button type="button" class="dav-btn dav-btn--secondary" data-resolution="remote" data-conflict="${escapeHtml(c.id)}">${st.ckUseRemote}</button>
       <button type="button" class="dav-btn dav-btn--link" data-diff="${escapeHtml(c.id)}">${st.ckOpenDiff} ›</button>
     </div>
-  </div>`,
-      )
+  </div>`;
+      })
       .join("") + `<div class="dav-hint">${st.ckBackupHint}</div>`;
+  refreshConflictBar();
 }
 
 // ── History pane ──
@@ -411,7 +509,10 @@ export function renderLog(state: SyncUiState): void {
   }
 }
 
-/** Footer / panel sync button label with the refresh glyph. */
-export function syncNowButtonLabel(): string {
-  return `${SYNC_ICONS.refresh}${st.actSyncNow}`;
+/** Footer / panel sync button label; a running pass turns the glyph into
+ *  a spinner and swaps the action label for its progress state. */
+export function syncNowButtonLabel(syncing = false): string {
+  return syncing
+    ? `${SYNC_ICONS.spinner}${st.stSyncing}`
+    : `${SYNC_ICONS.refresh}${st.actSyncNow}`;
 }

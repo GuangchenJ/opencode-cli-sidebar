@@ -324,6 +324,22 @@ export class MessageRouter {
           );
         }
         break;
+      case "resolveWebdavConflicts":
+        if (
+          Array.isArray(message.ids) &&
+          (message.resolution === "local" || message.resolution === "remote")
+        ) {
+          const ids = message.ids.filter(
+            (id): id is string => typeof id === "string",
+          );
+          if (ids.length > 0) {
+            await getActiveConfigSyncService()?.resolveConflicts(
+              ids,
+              message.resolution,
+            );
+          }
+        }
+        break;
       case "openWebdavDiff":
         if (typeof message.id === "string") {
           await getActiveConfigSyncService()?.openDiff(message.id);

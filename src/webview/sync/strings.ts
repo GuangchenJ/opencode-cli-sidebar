@@ -39,6 +39,7 @@ export const st = {
     syncT("iconConflict", "{0} conflict(s) to resolve", n),
   iconError: syncT("iconError", "Sync error"),
   iconPaused: syncT("iconPaused", "Auto sync paused"),
+  iconAuth: syncT("iconAuth", "WebDAV credentials required"),
 
   // ── Status line (tooltip) ──
   stSyncing: syncT("stSyncing", "Syncing…"),
@@ -49,6 +50,7 @@ export const st = {
     syncT("stConflict", "{0} file(s) need conflict resolution", n),
   stError: syncT("stError", "Cannot reach the sync server"),
   stUnconfigured: syncT("stUnconfigured", "WebDAV sync is not configured"),
+  stNeedsAuth: syncT("stNeedsAuth", "WebDAV credentials required"),
   lastSync: (label: string) =>
     syncT("lastSync", "Last sync {0}", label),
   neverSynced: syncT("neverSynced", "Never synced"),
@@ -56,10 +58,6 @@ export const st = {
   manualMode: syncT("manualMode", "Manual-only mode"),
   pausedBadge: syncT("pausedBadge", "Auto sync paused after repeated errors"),
   actSyncNow: syncT("actSyncNow", "Sync now"),
-  actOpenPanel: syncT("actOpenPanel", "Open sync panel"),
-  tipOpenItems: syncT("tipOpenItems", "View sync items"),
-  tipOpenConflict: syncT("tipOpenConflict", "Resolve conflicts"),
-  tipOpenLog: syncT("tipOpenLog", "View log"),
 
   // ── Panel header ──
   hdrPending: (n: number) => syncT("hdrPending", "{0} pending", n),
@@ -98,6 +96,16 @@ export const st = {
   ckKeepLocal: syncT("ckKeepLocal", "Keep local"),
   ckUseRemote: syncT("ckUseRemote", "Use remote"),
   ckOpenDiff: syncT("ckOpenDiff", "Open diff"),
+  ckSelectAll: syncT("ckSelectAll", "Select all"),
+  ckSelected: (n: number) => syncT("ckSelected", "{0} selected", n),
+  ckKeepLocalSelected: syncT(
+    "ckKeepLocalSelected",
+    "Keep local for selected conflicts",
+  ),
+  ckUseRemoteSelected: syncT(
+    "ckUseRemoteSelected",
+    "Use remote for selected conflicts",
+  ),
   ckBackupHint: syncT(
     "ckBackupHint",
     "Both sides are backed up before a decision is applied.",
@@ -138,6 +146,19 @@ export const st = {
     syncT("footError", "Offline · last sync {0}", label),
   footPaused: (label: string) =>
     syncT("footPaused", "Auto sync paused · last sync {0}", label),
+  footNeedsAuth: syncT(
+    "footNeedsAuth",
+    "Credentials required · enter the password in Server settings",
+  ),
+  authBannerMissing: syncT(
+    "authBannerMissing",
+    "The WebDAV password is not stored on this device. Enter it in Server settings to resume syncing.",
+  ),
+  authBannerRejected: syncT(
+    "authBannerRejected",
+    "The WebDAV server rejected the stored credentials. Update the username or password in Server settings.",
+  ),
+  authBannerGo: syncT("authBannerGo", "Enter password"),
   testOk: (ms: number) => syncT("testOk", "Connected · {0} ms", ms),
   testFail: (msg: string) => syncT("testFail", "Failed · {0}", msg),
   saveOk: syncT("saveOk", "Saved"),

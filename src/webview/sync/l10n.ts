@@ -19,11 +19,7 @@ export const syncL10nStrings: Record<string, string> = {
   iconConflict: l10n.t("{0} conflict(s) to resolve"),
   iconError: l10n.t("Sync error"),
   iconPaused: l10n.t("Auto sync paused"),
-
-  // Tooltip actions
-  tipOpenItems: l10n.t("View sync items"),
-  tipOpenConflict: l10n.t("Resolve conflicts"),
-  tipOpenLog: l10n.t("View log"),
+  iconAuth: l10n.t("WebDAV credentials required"),
 
   // Status line / panel actions
   stSyncing: l10n.t("Syncing…"),
@@ -32,13 +28,13 @@ export const syncL10nStrings: Record<string, string> = {
   stConflict: l10n.t("{0} file(s) need conflict resolution"),
   stError: l10n.t("Cannot reach the sync server"),
   stUnconfigured: l10n.t("WebDAV sync is not configured"),
+  stNeedsAuth: l10n.t("WebDAV credentials required"),
   lastSync: l10n.t("Last sync {0}"),
   neverSynced: l10n.t("Never synced"),
   autoOn: l10n.t("Auto sync on"),
   manualMode: l10n.t("Manual-only mode"),
   pausedBadge: l10n.t("Auto sync paused after repeated errors"),
   actSyncNow: l10n.t("Sync now"),
-  actOpenPanel: l10n.t("Open sync panel"),
 
   // Panel header modes
   hdrPending: l10n.t("{0} pending"),
@@ -69,6 +65,10 @@ export const syncL10nStrings: Record<string, string> = {
   ckKeepLocal: l10n.t("Keep local"),
   ckUseRemote: l10n.t("Use remote"),
   ckOpenDiff: l10n.t("Open diff"),
+  ckSelectAll: l10n.t("Select all"),
+  ckSelected: l10n.t("{0} selected"),
+  ckKeepLocalSelected: l10n.t("Keep local for selected conflicts"),
+  ckUseRemoteSelected: l10n.t("Use remote for selected conflicts"),
   ckBackupHint: l10n.t(
     "Both sides are backed up before a decision is applied.",
   ),
@@ -103,6 +103,16 @@ export const syncL10nStrings: Record<string, string> = {
   footConflict: l10n.t("{0} conflict(s) · last sync {1}"),
   footError: l10n.t("Offline · last sync {0}"),
   footPaused: l10n.t("Auto sync paused · last sync {0}"),
+  footNeedsAuth: l10n.t(
+    "Credentials required · enter the password in Server settings",
+  ),
+  authBannerMissing: l10n.t(
+    "The WebDAV password is not stored on this device. Enter it in Server settings to resume syncing.",
+  ),
+  authBannerRejected: l10n.t(
+    "The WebDAV server rejected the stored credentials. Update the username or password in Server settings.",
+  ),
+  authBannerGo: l10n.t("Enter password"),
   testOk: l10n.t("Connected · {0} ms"),
   testFail: l10n.t("Failed · {0}"),
   saveOk: l10n.t("Saved"),

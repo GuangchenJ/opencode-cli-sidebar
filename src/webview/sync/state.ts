@@ -89,6 +89,7 @@ export type SyncIconKind =
   | "conflict"
   | "error"
   | "paused"
+  | "auth"
   | "syncing"
   | "pending";
 
@@ -104,6 +105,11 @@ export interface SyncIconInfo {
  * target when the toolbar icon itself is hidden.
  */
 export function statusIconFor(s: SyncUiState): SyncIconInfo | null {
+  // A missing or rejected password blocks every sync path; surfacing it
+  // above conflicts and pending counts points the user at the one fix.
+  if (s.state === "needsAuth") {
+    return { kind: "auth" };
+  }
   if (s.conflictCount > 0) {
     return { kind: "conflict", count: s.conflictCount };
   }

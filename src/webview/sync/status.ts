@@ -43,6 +43,14 @@ export function syncStatusLine(state: SyncUiState): SyncStatusLine {
       blink: false,
     };
   }
+  if (icon?.kind === "auth") {
+    return {
+      text: st.stNeedsAuth,
+      color: yellow,
+      iconHtml: SYNC_ICONS.key,
+      blink: false,
+    };
+  }
   if (icon?.kind === "error") {
     return {
       text: st.stError,

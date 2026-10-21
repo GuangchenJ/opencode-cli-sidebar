@@ -35,7 +35,7 @@ const vscode = await vi.importActual<typeof import("../../test/mocks/vscode")>(
 class FakeClient implements WebDavClientLike {
   public readonly files = new Map<string, { etag: string | null; content: Buffer }>();
   public readonly dirs = new Set<string>([""]);
-  public failure: "fatal" | "transient" | undefined;
+  public failure: "fatal" | "auth" | "forbidden" | "transient" | undefined;
   /** Scripted per-attempt PUT failures, consumed in order. */
   public readonly putFailures: Array<"precondition" | "unsupported"> = [];
   /** Rel paths whose remote DELETE fails with a transient error. */
@@ -194,7 +194,19 @@ class FakeClient implements WebDavClientLike {
 
   private maybeFail(): void {
     if (this.failure === "fatal") {
-      throw new WebDavFatalError("boom", 401);
+      throw new WebDavFatalError("boom");
+    }
+    if (this.failure === "auth") {
+      throw new WebDavFatalError(
+        "WebDAV server rejected the credentials with status 401",
+        401,
+      );
+    }
+    if (this.failure === "forbidden") {
+      throw new WebDavFatalError(
+        "WebDAV server rejected the credentials with status 403",
+        403,
+      );
     }
     if (this.failure === "transient") {
       throw new WebDavTransientError("network down", 502);
@@ -806,6 +818,43 @@ describe("ConfigSyncService engine", () => {
     expect(snapshot.conflicts).toEqual([]);
   });
 
+  it("resolves a batch of conflicts with one snapshot refresh", async () => {
+    writeLocal("cli.json", "base");
+    client.addFile("cli.json", "base");
+    writeLocal("AGENTS.md", "base");
+    client.addFile("AGENTS.md", "base");
+    await service.syncNow();
+
+    writeLocal("cli.json", "local-cli");
+    client.addFile("cli.json", "remote-cli");
+    writeLocal("AGENTS.md", "local-agents");
+    client.addFile("AGENTS.md", "remote-agents");
+    await service.syncNow();
+
+    const conflicts = (await service.getSnapshot()).conflicts;
+    expect(conflicts).toHaveLength(2);
+    posted.length = 0;
+    deltas.length = 0;
+
+    await service.resolveConflicts(
+      [...conflicts.map((conflict) => conflict.id), "missing:id"],
+      "remote",
+    );
+
+    expect(readLocal("cli.json")).toBe("remote-cli");
+    expect(readLocal("AGENTS.md")).toBe("remote-agents");
+    expect(backupCount("cli.json")).toBe(1);
+    expect(backupCount("AGENTS.md")).toBe(1);
+    expect((await service.getSnapshot()).conflicts).toEqual([]);
+    // One refresh for the whole selection, not one per file.
+    expect(
+      posted.filter((message) => message.type === "webdavSyncData"),
+    ).toHaveLength(1);
+    expect(
+      deltas.filter((delta) => delta.conflictCount !== undefined),
+    ).toEqual([{ conflictCount: 0 }]);
+  });
+
   it("resolves a remoteDeleted conflict by deleting the local copy", async () => {
     writeLocal("cli.json", "base");
     client.addFile("cli.json", "base");
@@ -1325,6 +1374,153 @@ describe("ConfigSyncService engine", () => {
     expect(client.calls.put).toEqual(["cli.json"]);
     expect(internal.autoSyncPaused).toBe(false);
     expect((await service.getSnapshot()).autoSyncPaused).toBe(false);
+  });
+
+  it("asks for credentials instead of failing when settings synced without the secret", async () => {
+    const context = (
+      service as unknown as { context: vscodeTypes.ExtensionContext }
+    ).context;
+    vi.mocked(context.secrets.get).mockResolvedValue(undefined);
+    settings["sync.autoSyncEnabled"] = true;
+    settings["sync.autoSyncOnStartup"] = true;
+    writeLocal("cli.json", "v1");
+
+    service.initialize();
+
+    await vi.waitFor(async () => {
+      if ((await service.getSnapshot()).state !== "needsAuth") {
+        throw new Error("waiting for the startup preflight");
+      }
+    });
+    // The pass never hit the network: a missing secret is not a 401.
+    expect(clientFactoryCalls).toBe(0);
+    expect(client.calls.propfind).toEqual([]);
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.autoSyncPaused).toBe(false);
+    expect(snapshot.settings.passwordSet).toBe(false);
+    expect(snapshot.history).toEqual([]);
+    expect(deltas.at(-1)).toMatchObject({ state: "needsAuth" });
+  });
+
+  it("recovers from the credentials state once the password is saved", async () => {
+    const context = (
+      service as unknown as { context: vscodeTypes.ExtensionContext }
+    ).context;
+    vi.mocked(context.secrets.get).mockResolvedValue(undefined);
+    writeLocal("cli.json", "v1");
+    await service.syncNow();
+    expect((await service.getSnapshot()).state).toBe("needsAuth");
+    expect(client.calls.propfind).toEqual([]);
+
+    vi.mocked(context.secrets.get).mockResolvedValue("typed-password");
+    await service.saveServerConfig(
+      {
+        url: "https://dav.test",
+        username: "user",
+        basePath: "/opencode-config/",
+        allowInsecureHttp: false,
+        acceptSelfSigned: false,
+      },
+      "typed-password",
+    );
+    await vi.waitFor(() => {
+      if (client.calls.put.length === 0) {
+        throw new Error("sync pass still running");
+      }
+    });
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.state).toBe("idle");
+    expect(snapshot.settings.passwordSet).toBe(true);
+    expect(snapshot.autoSyncPaused).toBe(false);
+  });
+
+  it("clears the credentials state when the server identity changes", async () => {
+    const context = (
+      service as unknown as { context: vscodeTypes.ExtensionContext }
+    ).context;
+    vi.mocked(context.secrets.get).mockResolvedValue(undefined);
+    writeLocal("cli.json", "v1");
+    await service.syncNow();
+    expect((await service.getSnapshot()).state).toBe("needsAuth");
+
+    const internal = service as unknown as {
+      clearNeedsAuthIfConfigChanged: () => void;
+    };
+    // Unrelated option edits keep the verdict.
+    settings["sync.showStatusIcon"] = false;
+    internal.clearNeedsAuthIfConfigChanged();
+    expect((await service.getSnapshot()).state).toBe("needsAuth");
+
+    // A different username resolves a different stored secret, so the old
+    // verdict is obsolete and automatic triggers may run again.
+    settings["sync.username"] = "other-user";
+    internal.clearNeedsAuthIfConfigChanged();
+    expect((await service.getSnapshot()).state).toBe("idle");
+  });
+
+  it("treats rejected credentials as a sign-in state, not an auto-sync pause", async () => {
+    const internal = service as unknown as {
+      autoSyncPaused: boolean;
+      triggerAuto: (trigger: string) => Promise<void>;
+    };
+    writeLocal("cli.json", "v1");
+    client.failure = "auth";
+    await internal.triggerAuto("poll");
+
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.state).toBe("needsAuth");
+    expect(snapshot.autoSyncPaused).toBe(false);
+    expect(internal.autoSyncPaused).toBe(false);
+    expect(snapshot.history[0]).toMatchObject({
+      result: "failed",
+      trigger: "poll",
+      message: "The server rejected the sign-in details.",
+    });
+
+    // Automatic triggers stop hitting a server that rejects the secret.
+    client.calls.propfind.length = 0;
+    await internal.triggerAuto("poll");
+    expect(client.calls.propfind).toEqual([]);
+
+    // A manual sync after fixing the credentials clears the state.
+    client.failure = undefined;
+    await service.syncNow();
+    expect((await service.getSnapshot()).state).toBe("idle");
+  });
+
+  it("treats a 403 as a permission failure, not a credentials state", async () => {
+    const internal = service as unknown as {
+      autoSyncPaused: boolean;
+      triggerAuto: (trigger: string) => Promise<void>;
+    };
+    writeLocal("cli.json", "v1");
+    client.failure = "forbidden";
+    await internal.triggerAuto("poll");
+
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.state).toBe("error");
+    expect(snapshot.autoSyncPaused).toBe(true);
+    expect(internal.autoSyncPaused).toBe(true);
+    expect(snapshot.history[0]).toMatchObject({
+      result: "failed",
+      trigger: "poll",
+      message:
+        "The server refused the operation. Check the account permissions.",
+    });
+  });
+
+  it("keeps anonymous servers working without a stored secret", async () => {
+    const context = (
+      service as unknown as { context: vscodeTypes.ExtensionContext }
+    ).context;
+    settings["sync.username"] = "";
+    vi.mocked(context.secrets.get).mockResolvedValue(undefined);
+    writeLocal("cli.json", "v1");
+
+    await service.syncNow();
+
+    expect(client.calls.put).toEqual(["cli.json"]);
+    expect((await service.getSnapshot()).state).toBe("idle");
   });
 
   it("pauses after five consecutive transient failures and backs off between", async () => {

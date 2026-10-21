@@ -39,11 +39,18 @@ export const SYNC_ICONS = {
   off: svg(
     '<path d="M12 5v14"/><path d="m5 12 7 7 7-7"/><path d="M5 5h14"/>',
   ),
+  /** Credentials missing or rejected. */
+  key: svg(
+    '<circle cx="7.5" cy="15.5" r="4.5"/>' +
+      '<path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m15 8 2 2"/>',
+  ),
   /** Sync-now action button icon. */
   refresh: svg(
     '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
     12,
   ),
+  /** Busy spinner while a sync pass is already running. */
+  spinner: svg('<path d="M21 12a9 9 0 1 1-6.36-8.64"/>', 12),
   /** Chevron for the collapsible trigger-source group. */
   chevron: svg('<path d="m6 9 6 6 6-6"/>', 13),
   /** Row remove ("x") for sync item / exclusion rows. */
