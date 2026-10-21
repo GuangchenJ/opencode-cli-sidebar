@@ -33,6 +33,7 @@ import {
   WebDavRateLimitedError,
   WebDavTransientError,
   type WebDavClientOptions,
+  type WebDavDeleteConditions,
   type WebDavPutConditions,
   type WebDavStat,
 } from "./WebDavClient";
@@ -255,7 +256,7 @@ export interface WebDavClientLike {
     conditions?: WebDavPutConditions,
   ): Promise<void>;
   mkcol(path: string): Promise<void>;
-  del(path: string): Promise<void>;
+  del(path: string, conditions?: WebDavDeleteConditions): Promise<void>;
   /** Create the base path plus missing ancestor collections. */
   ensureBasePath?(): Promise<void>;
 }
@@ -301,6 +302,8 @@ export class ConfigSyncService implements vscode.Disposable {
   private state: WebDavSyncState = "unconfigured";
   private autoSyncPaused = false;
   private pendingCount = 0;
+  /** Remote deletions completed by an exclude purge, reported by the next pass. */
+  private pendingExcludeDeletes = 0;
   private lastSyncAt: number | undefined;
   private syncing = false;
   private conflicts = new Map<string, WebDavConflictEntry>();
@@ -312,6 +315,11 @@ export class ConfigSyncService implements vscode.Disposable {
 
   private failureStreak = 0;
   private nextBackoffMs = FIRST_BACKOFF_MS;
+
+  /** Reused across passes so the sliding-window request pacing persists. */
+  private cachedClient:
+    | { key: string; client: WebDavClientLike }
+    | undefined;
 
   /** Serializes the sync transfer phase against conflict resolution. */
   private exclusiveQueue: Promise<void> = Promise.resolve();
@@ -368,6 +376,7 @@ export class ConfigSyncService implements vscode.Disposable {
 
   public dispose(): void {
     this.stopAutoTimers();
+    this.cachedClient = undefined;
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
@@ -877,11 +886,40 @@ export class ConfigSyncService implements vscode.Disposable {
         const client = await this.createClientFromSettings(config);
         const rel = current.path;
         const abs = this.toAbsoluteLocalPath(rel);
+        let localStat: fs.Stats | undefined;
+        try {
+          localStat = await fs.promises.stat(abs);
+        } catch {
+          localStat = undefined;
+        }
         const manifest = new SyncManifest(this.globalStoragePath());
         await manifest.load();
         switch (current.kind) {
           case "content":
             if (resolution === "local") {
+              // Overwrite only the version the user reviewed. A change
+              // landing since the conflict was detected surfaces as a
+              // fresh conflict instead of being silently destroyed.
+              const remoteStat = await this.statRemoteFile(client, rel);
+              if (
+                remoteStat &&
+                !this.remoteStateMatchesConflict(current, remoteStat)
+              ) {
+                recordConflict(
+                  this.conflictEntry(
+                    rel,
+                    "content",
+                    localStat,
+                    remoteStat,
+                    "remoteChanged",
+                  ),
+                );
+                this.log(
+                  "warn",
+                  `conflict kept; the server copy changed since it was detected: ${rel}`,
+                );
+                break;
+              }
               await this.uploadFile(
                 client,
                 rel,
@@ -889,7 +927,10 @@ export class ConfigSyncService implements vscode.Disposable {
                 manifest,
                 new Set(),
                 true,
-                true,
+                {
+                  exists: remoteStat !== null,
+                  etag: remoteStat?.etag ?? null,
+                },
                 recordConflict,
               );
             } else {
@@ -907,8 +948,60 @@ export class ConfigSyncService implements vscode.Disposable {
             break;
           case "localDeleted":
             if (resolution === "local") {
-              await client.del(rel);
-              manifest.remove(rel);
+              const remoteStat = await this.statRemoteFile(client, rel);
+              if (!remoteStat) {
+                manifest.remove(rel);
+              } else if (
+                !this.remoteStateMatchesConflict(current, remoteStat)
+              ) {
+                // Never delete a server copy the user has not seen.
+                recordConflict(
+                  this.conflictEntry(
+                    rel,
+                    "localDeleted",
+                    localStat,
+                    remoteStat,
+                    "remoteChanged",
+                  ),
+                );
+                this.log(
+                  "warn",
+                  `conflict kept; the server copy changed since it was detected: ${rel}`,
+                );
+              } else {
+                try {
+                  await client.del(
+                    rel,
+                    remoteStat.etag ? { ifMatch: remoteStat.etag } : undefined,
+                  );
+                  manifest.remove(rel);
+                } catch (error) {
+                  if (error instanceof PreconditionFailedError) {
+                    const latest = await this.statRemoteFile(client, rel).catch(
+                      () => undefined,
+                    );
+                    if (latest === null) {
+                      manifest.remove(rel);
+                    } else {
+                      recordConflict(
+                        this.conflictEntry(
+                          rel,
+                          "localDeleted",
+                          localStat,
+                          latest ?? remoteStat,
+                          "preconditionFailed",
+                        ),
+                      );
+                      this.log(
+                        "warn",
+                        `conflict kept; the server copy changed during resolution: ${rel}`,
+                      );
+                    }
+                  } else {
+                    throw error;
+                  }
+                }
+              }
             } else {
               await this.downloadFile(
                 client,
@@ -924,6 +1017,26 @@ export class ConfigSyncService implements vscode.Disposable {
             break;
           case "remoteDeleted":
             if (resolution === "local") {
+              // A recreated remote is a version the user never reviewed;
+              // do not clobber it just because they picked "keep local"
+              // over the old deletion.
+              const remoteStat = await this.statRemoteFile(client, rel);
+              if (remoteStat) {
+                recordConflict(
+                  this.conflictEntry(
+                    rel,
+                    "content",
+                    localStat,
+                    remoteStat,
+                    "remoteChanged",
+                  ),
+                );
+                this.log(
+                  "warn",
+                  `conflict kept; the server copy was recreated since it was detected: ${rel}`,
+                );
+                break;
+              }
               await this.uploadFile(
                 client,
                 rel,
@@ -931,7 +1044,7 @@ export class ConfigSyncService implements vscode.Disposable {
                 manifest,
                 new Set(),
                 true,
-                false,
+                { exists: false, etag: null },
                 recordConflict,
               );
             } else {
@@ -1268,7 +1381,9 @@ export class ConfigSyncService implements vscode.Disposable {
       ).filter((item) => item.enabled);
       const excludes = normalizeExcludes(config.excludedPaths);
       const configDir = this.configDirProvider();
-      const localFiles = await collectItemFiles(items, configDir, excludes);
+      const localFiles = new Set(
+        await collectItemFiles(items, configDir, excludes),
+      );
       const manifest = new SyncManifest(this.globalStoragePath());
       await manifest.load();
 
@@ -1283,6 +1398,9 @@ export class ConfigSyncService implements vscode.Disposable {
       // re-checks it so edits landing mid-sync are never overwritten.
       const capturedStats = new Map<string, { size: number; mtimeMs: number }>();
       let fileErrors = 0;
+      // Recompute from scratch: a previous aborted pass may have counted
+      // files that this scan will count again.
+      this.pendingCount = 0;
 
       const allPaths = new Set<string>([
         ...remote.files.keys(),
@@ -1304,7 +1422,7 @@ export class ConfigSyncService implements vscode.Disposable {
         let localHash: string | null = null;
         let localStat: fs.Stats | undefined;
         const localAbs = this.toAbsoluteLocalPath(rel);
-        if (localFiles.includes(rel)) {
+        if (localFiles.has(rel)) {
           try {
             const [content, stat] = await Promise.all([
               fs.promises.readFile(localAbs),
@@ -1385,6 +1503,10 @@ export class ConfigSyncService implements vscode.Disposable {
           default:
             break;
         }
+        if (action.type !== "download") {
+          // Only a pending download still needs the fetched bytes.
+          remoteContentCache.delete(rel);
+        }
       }
 
       // Baseline checkpoint for files that already agree; the rate-limit
@@ -1410,20 +1532,23 @@ export class ConfigSyncService implements vscode.Disposable {
       // Execute transfers; per-file failures degrade to a partial result.
       for (const rel of uploads) {
         try {
-          await this.uploadFile(
+          const remoteStat = remote.files.get(rel);
+          const uploaded = await this.uploadFile(
             client,
             rel,
             this.toAbsoluteLocalPath(rel),
             manifest,
             remote.dirs,
             remote.baseMissing,
-            remote.files.has(rel),
+            { exists: remoteStat !== undefined, etag: remoteStat?.etag ?? null },
             (entry) => nextConflicts.set(entry.id, entry),
           );
           remote.baseMissing = false;
-          // Checkpoint so an aborted pass resumes without redoing files.
-          await manifest.save();
-          completedUploads++;
+          if (uploaded) {
+            // Checkpoint so an aborted pass resumes without redoing files.
+            await manifest.save();
+            completedUploads++;
+          }
         } catch (error) {
           if (
             error instanceof WebDavFatalError ||
@@ -1442,7 +1567,7 @@ export class ConfigSyncService implements vscode.Disposable {
       }
       for (const rel of downloads) {
         try {
-          await this.downloadFile(
+          const downloaded = await this.downloadFile(
             client,
             rel,
             this.toAbsoluteLocalPath(rel),
@@ -1452,8 +1577,10 @@ export class ConfigSyncService implements vscode.Disposable {
             capturedStats.get(rel) ?? null,
             (entry) => nextConflicts.set(entry.id, entry),
           );
-          await manifest.save();
-          completedDownloads++;
+          if (downloaded) {
+            await manifest.save();
+            completedDownloads++;
+          }
         } catch (error) {
           if (
             error instanceof WebDavFatalError ||
@@ -1468,6 +1595,8 @@ export class ConfigSyncService implements vscode.Disposable {
               error instanceof Error ? error.message : String(error)
             }`,
           );
+        } finally {
+          remoteContentCache.delete(rel);
         }
       }
       await applyAgreesAndForgets();
@@ -1491,11 +1620,11 @@ export class ConfigSyncService implements vscode.Disposable {
         this.armTriggers();
       }
       const direction =
-        uploads.length > 0 && downloads.length > 0
+        completedUploads > 0 && completedDownloads > 0
           ? "both"
-          : uploads.length > 0
+          : completedUploads > 0
             ? "up"
-            : downloads.length > 0
+            : completedDownloads > 0
               ? "down"
               : "none";
       const result: "success" | "partial" | "failed" =
@@ -1503,13 +1632,16 @@ export class ConfigSyncService implements vscode.Disposable {
       this.appendHistory({
         time: now,
         direction,
-        files: uploads.length + downloads.length,
+        files: completedUploads + completedDownloads,
+        uploads: completedUploads,
+        downloads: completedDownloads,
+        deletes: this.takeExcludeDeletes(trigger),
         result,
         trigger,
       });
       this.log(
         "info",
-        `sync finished (${trigger}): ${uploads.length} up, ${downloads.length} down, ${nextConflicts.size} conflict(s), ${fileErrors} error(s)`,
+        `sync finished (${trigger}): ${completedUploads} up, ${completedDownloads} down, ${nextConflicts.size} conflict(s), ${fileErrors} error(s)`,
       );
 
       const delta: WebDavSyncStatusDelta = {
@@ -1520,10 +1652,10 @@ export class ConfigSyncService implements vscode.Disposable {
         lastSyncLabel: relativeTimeLabel(now),
         autoSyncPaused: false,
       };
-      if (downloads.length > 0) {
+      if (completedDownloads > 0) {
         delta.notice = l10n.t(
           "Downloaded {count} updated file(s) from the sync server.",
-          { count: downloads.length },
+          { count: completedDownloads },
         );
       }
       this.pushDelta(delta);
@@ -1555,6 +1687,9 @@ export class ConfigSyncService implements vscode.Disposable {
           time: Date.now(),
           direction: "none",
           files: 0,
+          uploads: 0,
+          downloads: 0,
+          deletes: this.takeExcludeDeletes(trigger),
           result: "failed",
           message: error.message,
           trigger,
@@ -1583,6 +1718,9 @@ export class ConfigSyncService implements vscode.Disposable {
       time: Date.now(),
       direction: "none",
       files: 0,
+      uploads: 0,
+      downloads: 0,
+      deletes: this.takeExcludeDeletes(trigger),
       result: "failed",
       message: error.message,
       trigger,
@@ -1648,6 +1786,9 @@ export class ConfigSyncService implements vscode.Disposable {
       time: Date.now(),
       direction,
       files: completedUploads + completedDownloads,
+      uploads: completedUploads,
+      downloads: completedDownloads,
+      deletes: this.takeExcludeDeletes(trigger),
       result: "partial",
       message: `rate limited by server; resuming in ${seconds}s`,
       trigger,
@@ -1733,6 +1874,9 @@ export class ConfigSyncService implements vscode.Disposable {
         for (const rel of remote.files.keys()) {
           // Only files this machine previously synced may be purged;
           // anything else may belong to another device.
+          if (!manifest.get(rel)) {
+            continue;
+          }
           if (!isPathUnderItems(rel, items)) {
             continue;
           }
@@ -1765,6 +1909,9 @@ export class ConfigSyncService implements vscode.Disposable {
         if (forgotAny) {
           await manifest.save();
         }
+        if (deletedCount > 0) {
+          this.pendingExcludeDeletes += deletedCount;
+        }
         if (targets.length > 0) {
           this.log(
             "info",
@@ -1789,19 +1936,19 @@ export class ConfigSyncService implements vscode.Disposable {
     manifest: SyncManifest,
     knownDirs: Set<string>,
     ensureBase: boolean,
-    remoteExists: boolean,
+    remote: { exists: boolean; etag: string | null },
     recordConflict?: (entry: WebDavConflictEntry) => void,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const content = await fs.promises.readFile(abs);
     const localHash = hashContent(content);
     await this.ensureRemoteDirs(client, rel, knownDirs, ensureBase);
-    // Compare-and-swap write: an unchanged remote keeps its ETag guard,
-    // a missing remote must be created, not blindly clobbered.
-    const prior = manifest.get(rel);
+    // Compare-and-swap write against the state this decision was based on:
+    // an unchanged remote keeps its ETag guard, a missing remote must be
+    // created, not blindly clobbered. Manifest baselines can be stale.
     let conditions: WebDavPutConditions | undefined;
-    if (remoteExists) {
-      if (prior?.remoteEtag) {
-        conditions = { ifMatch: prior.remoteEtag };
+    if (remote.exists) {
+      if (remote.etag) {
+        conditions = { ifMatch: remote.etag };
       }
     } else {
       conditions = { ifNoneMatchStar: true };
@@ -1816,12 +1963,17 @@ export class ConfigSyncService implements vscode.Disposable {
         } catch {
           localStat = undefined;
         }
+        // Observe the winning remote version so the conflict entry
+        // carries a resolvable snapshot instead of an empty one.
+        const currentRemote = await this.statRemoteFile(client, rel).catch(
+          () => undefined,
+        );
         recordConflict?.(
           this.conflictEntry(
             rel,
             "content",
             localStat,
-            undefined,
+            currentRemote ?? undefined,
             "preconditionFailed",
           ),
         );
@@ -1829,7 +1981,7 @@ export class ConfigSyncService implements vscode.Disposable {
           "warn",
           `upload skipped; the server copy changed since the sync started: ${rel}`,
         );
-        return;
+        return false;
       }
       if (
         conditions &&
@@ -1863,6 +2015,23 @@ export class ConfigSyncService implements vscode.Disposable {
       lastSyncAt: now,
     });
     this.log("info", `uploaded ${rel}`);
+    return true;
+  }
+
+  /** Current stat of one remote file; null when it no longer exists. */
+  private async statRemoteFile(
+    client: WebDavClientLike,
+    rel: string,
+  ): Promise<WebDavStat | null> {
+    try {
+      const stats = await client.propfind(rel, 0);
+      return stats.find((stat) => stat.path === rel) ?? null;
+    } catch (error) {
+      if (error instanceof WebDavTransientError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async downloadFile(
@@ -1874,7 +2043,11 @@ export class ConfigSyncService implements vscode.Disposable {
     cachedContent: Buffer | null,
     captured: { size: number; mtimeMs: number } | null = null,
     recordConflict?: (entry: WebDavConflictEntry) => void,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    // Observe the ETag before reading the bytes. Reading first and
+    // stat-ing afterwards could pair stale content with a fresh ETag and
+    // make the next pass believe an outdated local copy is current.
+    const remoteStat = stat ?? (await this.statRemoteFile(client, rel));
     const content = cachedContent ?? (await client.get(rel));
     if (captured) {
       // The scan snapshot is stale the moment anything touched the local
@@ -1896,7 +2069,7 @@ export class ConfigSyncService implements vscode.Disposable {
             rel,
             "content",
             current,
-            stat,
+            remoteStat,
             "localModifiedDuringSync",
           ),
         );
@@ -1904,27 +2077,25 @@ export class ConfigSyncService implements vscode.Disposable {
           "warn",
           `download skipped; the local file changed during the sync: ${rel}`,
         );
-        return;
+        return false;
       }
     }
-    let etag = stat?.etag ?? null;
-    if (!stat) {
-      try {
-        const stats = await client.propfind(rel, 0);
-        etag = stats.find((candidate) => candidate.path === rel)?.etag ?? null;
-      } catch {
-        etag = null;
-      }
-    }
+    const etag = remoteStat?.etag ?? null;
     if (fs.existsSync(abs)) {
       const backedUp = await this.backupLocalFile(abs, rel);
       if (!backedUp) {
         // Refuse to destroy the local copy without a safety backup.
         recordConflict?.(
-          this.conflictEntry(rel, "content", undefined, stat, "backupFailed"),
+          this.conflictEntry(
+            rel,
+            "content",
+            undefined,
+            remoteStat,
+            "backupFailed",
+          ),
         );
         this.log("warn", `download skipped; local backup failed: ${rel}`);
-        return;
+        return false;
       }
     }
     await fs.promises.mkdir(path.dirname(abs), { recursive: true });
@@ -1941,6 +2112,7 @@ export class ConfigSyncService implements vscode.Disposable {
       lastSyncAt: now,
     });
     this.log("info", `downloaded ${rel}`);
+    return true;
   }
 
   private async ensureRemoteDirs(
@@ -2026,6 +2198,31 @@ export class ConfigSyncService implements vscode.Disposable {
     }
   }
 
+  /**
+   * Whether the remote state still matches the snapshot a conflict
+   * presented. Unknown snapshots never match, so resolution re-conflicts
+   * with current data instead of overwriting an unreviewed version.
+   */
+  private remoteStateMatchesConflict(
+    conflict: WebDavConflictEntry,
+    stat: WebDavStat,
+  ): boolean {
+    if (conflict.remoteEtag !== undefined) {
+      return stat.etag === conflict.remoteEtag;
+    }
+    if (
+      conflict.remoteMtime === undefined &&
+      conflict.remoteSize === undefined
+    ) {
+      return false;
+    }
+    return (
+      (conflict.remoteMtime === undefined ||
+        stat.lastModified === conflict.remoteMtime) &&
+      (conflict.remoteSize === undefined || stat.size === conflict.remoteSize)
+    );
+  }
+
   /** Uniform conflict entry shape for all conflict sources. */
   private conflictEntry(
     rel: string,
@@ -2042,6 +2239,7 @@ export class ConfigSyncService implements vscode.Disposable {
       localSize: localStat?.size,
       remoteMtime: remoteStat?.lastModified ?? undefined,
       remoteSize: remoteStat?.size,
+      remoteEtag: remoteStat ? remoteStat.etag : undefined,
     };
     if (reason) {
       entry.reason = reason;
@@ -2059,7 +2257,26 @@ export class ConfigSyncService implements vscode.Disposable {
       config.username,
       undefined,
     );
-    return this.clientFactory({
+    // Reuse the client while its inputs are unchanged so the pacing
+    // window carries across passes instead of resetting every operation.
+    const passwordFingerprint = crypto
+      .createHash("sha256")
+      .update(password ?? "", "utf8")
+      .digest("hex");
+    const key = JSON.stringify([
+      config.url,
+      config.username,
+      passwordFingerprint,
+      config.basePath,
+      config.allowInsecureHttp,
+      config.acceptSelfSigned,
+      config.rateLimitMaxRequests,
+      config.rateLimitWindowMinutes,
+    ]);
+    if (this.cachedClient?.key === key) {
+      return this.cachedClient.client;
+    }
+    const client = this.clientFactory({
       url: config.url,
       username: config.username,
       password,
@@ -2079,6 +2296,8 @@ export class ConfigSyncService implements vscode.Disposable {
         );
       },
     });
+    this.cachedClient = { key, client };
+    return client;
   }
 
   private async resolvePassword(
@@ -2152,6 +2371,16 @@ export class ConfigSyncService implements vscode.Disposable {
     );
   }
 
+  /** Claim purge deletions for the journal entry of the reconcile pass. */
+  private takeExcludeDeletes(trigger: SyncTrigger): number {
+    if (trigger !== "excludeChange") {
+      return 0;
+    }
+    const deletes = this.pendingExcludeDeletes;
+    this.pendingExcludeDeletes = 0;
+    return deletes;
+  }
+
   private appendHistory(entry: WebDavHistoryEntry): void {
     // Every VS Code window shares one globalState store; re-read the
     // persisted truth before appending so this window's stale in-memory
@@ -2163,6 +2392,9 @@ export class ConfigSyncService implements vscode.Disposable {
       last.time === entry.time &&
       last.direction === entry.direction &&
       last.files === entry.files &&
+      last.uploads === entry.uploads &&
+      last.downloads === entry.downloads &&
+      last.deletes === entry.deletes &&
       last.result === entry.result &&
       last.trigger === entry.trigger &&
       last.message === entry.message

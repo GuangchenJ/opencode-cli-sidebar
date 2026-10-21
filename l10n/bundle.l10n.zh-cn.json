@@ -174,7 +174,6 @@
   "Diff source": "Diff 来源",
   "Diff viewer": "Diff 查看器",
   "Diff wrapping": "Diff 换行",
-  "Direction": "方向",
   "Disable": "禁用此项",
   "Discard changes": "放弃更改",
   "Disconnected from session": "已断开会话连接",
@@ -236,7 +235,6 @@
   "Favorite model": "收藏模型",
   "Fetching changelog…": "正在获取更新日志…",
   "File tree": "文件树",
-  "Files": "项数",
   "Files that look like credentials cannot be synced.": "形似凭据的文件不能被同步。",
   "Filter": "筛选",
   "Filter the session list by directory": "按目录过滤会话列表",
@@ -963,7 +961,8 @@
   "{0} conflict(s)": "冲突 {0} 项",
   "{0} conflict(s) to resolve": "{0} 个冲突待处理",
   "{0} conflict(s) · last sync {1}": "冲突 {0} · 上次同步 {1}",
-  "{0} file(s)": "{0} 项",
+  "{0} deleted": "已删除 {0} 项",
+  "{0} downloaded": "已下载 {0} 项",
   "{0} file(s) need conflict resolution": "{0} 个文件需要处理冲突",
   "{0} file(s) pending upload": "待上传 {0} 个文件",
   "{0} is already used by \"{1}\". Overwrite it?": "{0} 已被「{1}」占用，是否覆盖？",
@@ -971,10 +970,8 @@
   "{0} pending · last sync {1}": "待上传 {0} · 上次同步 {1}",
   "{0} restored to default": "{0} 已恢复默认",
   "{0} saved": "{0} 已保存",
+  "{0} uploaded": "已上传 {0} 项",
   "{count} hours ago": "{count} 小时前",
   "{count} minutes ago": "{count} 分钟前",
-  "—": "—",
-  "↑ upload": "↑ 上传",
-  "↑↓ both": "↑↓ 双向",
-  "↓ download": "↓ 下载"
+  "—": "—"
 }

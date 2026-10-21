@@ -6,6 +6,7 @@ import {
   BUILTIN_SYNC_ITEMS,
   classifyEntry,
   collectItemFiles,
+  compileFullMatchRegex,
   deriveSyncItems,
   visibleSyncItems,
   isPathExcluded,
@@ -271,6 +272,13 @@ describe("syncItems", () => {
       kind: "invalid",
       reason: "escape",
     });
+  });
+
+  it("reuses compiled re: patterns across calls", () => {
+    expect(compileFullMatchRegex("notes/.*\\.md")).toBe(
+      compileFullMatchRegex("notes/.*\\.md"),
+    );
+    expect(compileFullMatchRegex("a")).not.toBe(compileFullMatchRegex("b"));
   });
 
   it("derives re: custom items as pattern rows kept verbatim", () => {

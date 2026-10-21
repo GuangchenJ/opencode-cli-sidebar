@@ -155,12 +155,28 @@ export function classifyEntry(input: string): EntryClassification {
   return { kind: "path", value: validation.normalized };
 }
 
+/** Match-compiled patterns are reused across paths; bounded to stay small. */
+const REGEX_CACHE_LIMIT = 100;
+const regexCache = new Map<string, RegExp>();
+
 /**
  * Compile one pattern for whole-line matching: relative paths use forward
  * slashes and the pattern is anchored on both ends.
  */
 export function compileFullMatchRegex(pattern: string): RegExp {
-  return new RegExp(`^(?:${pattern})$`);
+  const cached = regexCache.get(pattern);
+  if (cached) {
+    return cached;
+  }
+  const compiled = new RegExp(`^(?:${pattern})$`);
+  if (regexCache.size >= REGEX_CACHE_LIMIT) {
+    const oldest = regexCache.keys().next().value;
+    if (oldest !== undefined) {
+      regexCache.delete(oldest);
+    }
+  }
+  regexCache.set(pattern, compiled);
+  return compiled;
 }
 
 /** Normalize one relative path to forward slashes for regex matching. */

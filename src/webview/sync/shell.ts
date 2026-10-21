@@ -63,9 +63,7 @@ export interface SyncShellStrings {
   excludeAddBtn: string;
   excludeHint: string;
   hTime: string;
-  hDir: string;
   hTrigger: string;
-  hFiles: string;
   hResult: string;
   hSummary: string;
   histClear: string;
@@ -205,7 +203,7 @@ export function renderSyncShell(d: SyncShellStrings): string {
         <div class="dav-pane" data-pane="history" id="dav-pane-history">
           <div class="dav-hist-top">
             <div class="dav-hist-grid dav-hist-head">
-              <span>${d.hTime}</span><span>${d.hDir}</span><span>${d.hTrigger}</span><span>${d.hFiles}</span><span>${d.hResult}</span><span>${d.hSummary}</span>
+              <span>${d.hTime}</span><span>${d.hTrigger}</span><span>${d.hResult}</span><span>${d.hSummary}</span>
             </div>
             <button type="button" class="dav-hist-clear" id="dav-hist-clear" title="${d.histClear}" aria-label="${d.histClear}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
           </div>

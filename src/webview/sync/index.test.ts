@@ -122,9 +122,7 @@ const SHELL: SyncShellStrings = {
   excludeAddBtn: "Add",
   excludeHint: "hint",
   hTime: "Time",
-  hDir: "Dir",
   hTrigger: "Trigger",
-  hFiles: "Files",
   hResult: "Result",
   hSummary: "Summary",
   histClear: "Clear history",
@@ -902,6 +900,65 @@ describe("sync UI (webview)", () => {
   });
 
   describe("history", () => {
+    it("merges the per-action counts into the summary column", () => {
+      applyWebdavSyncData(
+        snapshot({
+          history: [
+            {
+              time: Date.now(),
+              direction: "both",
+              files: 6,
+              uploads: 2,
+              downloads: 1,
+              deletes: 3,
+              result: "success",
+              trigger: "poll",
+            },
+            { time: Date.now(), direction: "up", files: 2, result: "success" },
+            {
+              time: Date.now(),
+              direction: "none",
+              files: 0,
+              uploads: 0,
+              downloads: 0,
+              deletes: 0,
+              result: "failed",
+              message: "boom",
+            },
+          ],
+        }),
+      );
+      const head = document.querySelector(".dav-hist-head") as HTMLElement;
+      expect(head.textContent).toContain("Trigger");
+      expect(head.textContent).toContain("Summary");
+      expect(head.textContent).not.toContain("Action");
+
+      const rows = document.querySelectorAll("#dav-hist-list .dav-hist-row");
+      expect(rows).toHaveLength(3);
+      for (const row of rows) {
+        expect(row.children).toHaveLength(4);
+        expect(row.children[3].className).toBe("dav-hist-sum");
+      }
+
+      const sums = document.querySelectorAll("#dav-hist-list .dav-hist-sum");
+      const acts = document.querySelectorAll("#dav-hist-list .dav-hist-act");
+      expect(acts[0].querySelector(".dav-hist-up")?.textContent).toBe("↑2");
+      expect(acts[0].querySelector(".dav-hist-down")?.textContent).toBe("↓1");
+      expect(acts[0].querySelector(".dav-hist-del")?.textContent).toBe("−3");
+      expect(acts[0].querySelector(".dav-hist-up")?.getAttribute("title")).toBe(
+        "2 uploaded",
+      );
+      expect(sums[0].querySelector(".dav-hist-msg")).toBeNull();
+
+      // Legacy rows persisted before per-action counts fall back to the
+      // direction glyph plus the total transfer count.
+      expect(acts[1].textContent).toBe("↑2");
+
+      // Explicit zero counts render a dash, and the message stays visible.
+      expect(acts[2].textContent).toBe("—");
+      expect(sums[2].querySelector(".dav-hist-msg")?.textContent).toBe("boom");
+    });
+
     it("renders the trigger column with labels and a dash for legacy entries", () => {
       applyWebdavSyncData(
         snapshot({
@@ -911,8 +968,6 @@ describe("sync UI (webview)", () => {
           ],
         }),
       );
-      const head = document.querySelector(".dav-hist-head") as HTMLElement;
-      expect(head.textContent).toContain("Trigger");
 
       const rows = document.querySelectorAll("#dav-hist-list .dav-hist-row");
       expect(rows).toHaveLength(2);

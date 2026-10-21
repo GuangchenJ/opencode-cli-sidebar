@@ -2268,7 +2268,7 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
    ~60px at the 11px metadata size, so the 44px used elsewhere overflows. */
 /* Top line: the clear action rides the column-header row (ghost icon,
    red hover like the items-row remove) instead of floating above it;
-   the header grid keeps exactly its six spans so the narrow-mode
+   the header grid keeps exactly its four spans so the narrow-mode
    nth-child column hiding below stays intact. */
 .dav-hist-top { display: flex; align-items: center; gap: 8px; }
 .dav-hist-top .dav-hist-head { flex: 1; min-width: 0; }
@@ -2281,8 +2281,8 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-hist-clear:focus-visible { outline: 1px solid var(--vscode-focusBorder, #007fd4); }
 .dav-hist-grid {
   display: grid;
-  grid-template-columns: 72px 56px 64px 48px 48px minmax(0, 1fr);
-  column-gap: 8px; align-items: center;
+  grid-template-columns: 72px 64px 48px minmax(0, 1fr);
+  column-gap: 8px; row-gap: 4px; align-items: center;
 }
 .dav-hist-head {
   font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a);
@@ -2291,10 +2291,23 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
 .dav-hist-row { padding: 7px 0; font-size: 12px; border-bottom: 1px solid var(--vscode-panel-border, #2e2e2e); }
 .dav-hist-t { font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); }
 .dav-hist-trig { font-size: 11px; color: var(--vscode-descriptionForeground, #8a8a8a); white-space: nowrap; }
+/* Summary cell: direction glyph + count per transfer kind, then the
+   optional message (separated by a dot when both are present). */
+.dav-hist-sum { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.dav-hist-act {
+  display: inline-flex; align-items: baseline; gap: 7px; white-space: nowrap;
+  flex-shrink: 0;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 11px;
+  color: var(--vscode-descriptionForeground, #8a8a8a);
+}
+.dav-hist-up { color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b); }
+.dav-hist-down { color: var(--vscode-textLink-foreground, #3794ff); }
+.dav-hist-del { color: var(--vscode-errorForeground, #f87171); }
 .dav-hist-msg {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--vscode-descriptionForeground, #8a8a8a); font-size: 11px;
 }
+.dav-hist-msg::before { content: "·"; margin-right: 6px; }
 /* Status chips: soft tint mixed from the status color into the theme background,
    pill-shaped, borderless — quiet next to the solid .dav-nav-count pill. */
 .dav-badge {
@@ -2351,16 +2364,15 @@ body.vscode-high-contrast .oc-ic-d { display: block; }
     border-left: none; border-bottom: 2px solid transparent;
   }
   .dav-nav-item.is-on { border-left-color: transparent; border-bottom-color: var(--vscode-focusBorder, #007fd4); }
-  .dav-hist-grid { grid-template-columns: 64px 52px 36px 44px; }
+  .dav-hist-grid { grid-template-columns: 64px 44px; }
   .dav-badge { padding: 3px 5px; }  /* keep chip within the 44px result column */
-  /* Trigger column hidden on narrow sidebars: the five fixed columns plus
-     gaps already consume ~268px of the ~270px a 300px sidebar leaves after
-     modal padding, and its longest labels would not fit anyway. */
-  .dav-hist-head > span:nth-child(3) { display: none; }
+  /* Trigger column hidden on narrow sidebars: its longest labels would not
+     fit; the summary cell (action counts + message) wraps below instead. */
+  .dav-hist-head > span:nth-child(2) { display: none; }
   .dav-hist-trig { display: none; }
   .dav-hist-head > span:last-child { display: none; }
+  .dav-hist-row .dav-hist-sum { grid-column: 1 / -1; grid-row: 2; }
   .dav-hist-row .dav-hist-msg {
-    grid-column: 1 / -1; grid-row: 2;
     white-space: normal; overflow: visible; text-overflow: clip; word-break: break-all;
   }
   /* Items pane: flex rows adapt naturally; only soften the group gap

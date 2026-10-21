@@ -28,15 +28,20 @@ export interface SyncManifestData {
 /**
  * Content hash used by all comparisons: SHA-256 over normalized text where
  * a leading BOM is stripped and CRLF line endings become LF. Binary bytes
- * that survive the round trip unchanged hash identically on both sides.
+ * that do not survive a UTF-8 round trip are hashed raw so distinct
+ * binaries can never collapse to the same replacement-character text.
  */
 export function hashContent(content: Buffer): string {
-  let text = content.toString("utf8");
-  if (text.charCodeAt(0) === 0xfeff) {
-    text = text.slice(1);
+  const text = content.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(content)) {
+    return crypto.createHash("sha256").update(content).digest("hex");
   }
-  text = text.replace(/\r\n/g, "\n");
-  return crypto.createHash("sha256").update(text, "utf8").digest("hex");
+  let normalized = text;
+  if (normalized.charCodeAt(0) === 0xfeff) {
+    normalized = normalized.slice(1);
+  }
+  normalized = normalized.replace(/\r\n/g, "\n");
+  return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
 }
 
 /** Directory that holds manifest.json plus conflict backups. */
@@ -88,10 +93,21 @@ export class SyncManifest {
   public async save(): Promise<void> {
     const dir = path.dirname(this.filePath);
     await fs.promises.mkdir(dir, { recursive: true });
-    await fs.promises.writeFile(
-      this.filePath,
-      JSON.stringify(this.data, null, 2),
-      "utf8",
-    );
+    // Write-then-rename so a crash mid-write leaves the previous manifest
+    // intact instead of a truncated file that reads back as empty.
+    const tempPath = `${this.filePath}.${process.pid}.${crypto
+      .randomBytes(4)
+      .toString("hex")}.tmp`;
+    try {
+      await fs.promises.writeFile(
+        tempPath,
+        JSON.stringify(this.data, null, 2),
+        "utf8",
+      );
+      await fs.promises.rename(tempPath, this.filePath);
+    } catch (error) {
+      await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 }

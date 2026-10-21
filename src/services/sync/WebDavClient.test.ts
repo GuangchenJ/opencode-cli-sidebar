@@ -405,6 +405,21 @@ describe("WebDavClient", () => {
     ).toBe("skills/a b.md");
   });
 
+  it("matches base paths with spaces and non-ASCII segments", () => {
+    const base = "/dav/配置 目录/";
+    const encodedBase = "/dav/%E9%85%8D%E7%BD%AE%20%E7%9B%AE%E5%BD%95";
+    expect(
+      hrefToRelativePath(`${encodedBase}/skills/a%20b.md`, base),
+    ).toBe("skills/a b.md");
+    // Some servers echo hrefs unencoded.
+    expect(
+      hrefToRelativePath("/dav/配置 目录/skills/a b.md", base),
+    ).toBe("skills/a b.md");
+    expect(hrefToRelativePath(encodedBase, base)).toBe("");
+    expect(hrefToRelativePath(`${encodedBase}/`, base)).toBe("");
+    expect(hrefToRelativePath("/dav/other/x.md", base)).toBeNull();
+  });
+
   it("sends conditional PUT headers and reports 412 distinctly", async () => {
     const client = new WebDavClient(baseOptions());
 
@@ -439,6 +454,22 @@ describe("WebDavClient", () => {
       (caught: WebDavTransientError) => caught,
     );
     expect(error).toBeInstanceOf(WebDavTransientError);
+    expect(error.status).toBe(412);
+  });
+
+  it("sends conditional DELETE headers and reports 412 distinctly", async () => {
+    const client = new WebDavClient(baseOptions());
+    const pending = client.del("skills/a.md", { ifMatch: '"v9"' });
+    const call = httpsCalls[0];
+    expect(call.options.method).toBe("DELETE");
+    expect((call.options.headers as Record<string, string>)["If-Match"]).toBe(
+      '"v9"',
+    );
+    respond(call, 412, "");
+    const error = await pending.catch(
+      (caught: WebDavTransientError) => caught,
+    );
+    expect(error).toBeInstanceOf(PreconditionFailedError);
     expect(error.status).toBe(412);
   });
 

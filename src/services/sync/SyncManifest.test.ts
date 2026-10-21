@@ -21,6 +21,18 @@ describe("SyncManifest", () => {
     );
   });
 
+  it("hashes binary bytes raw instead of collapsing invalid UTF-8", () => {
+    // Both decode to U+FFFD replacement characters; a text-based hash
+    // would treat them as identical and skip downloading one of them.
+    const a = Buffer.from([0xff, 0x00, 0x01]);
+    const b = Buffer.from([0xff, 0x00, 0x02]);
+    expect(hashContent(a)).not.toBe(hashContent(b));
+    expect(hashContent(a)).toBe(hashContent(Buffer.from(a)));
+    expect(hashContent(a)).not.toBe(
+      hashContent(Buffer.from(a.toString("utf8"), "utf8")),
+    );
+  });
+
   it("persists entries under <globalStorage>/sync/manifest.json", async () => {
     const manifest = new SyncManifest(storageDir);
     await manifest.load();
@@ -42,6 +54,11 @@ describe("SyncManifest", () => {
 
     const filePath = path.join(syncStorageDir(storageDir), "manifest.json");
     expect(fs.existsSync(filePath)).toBe(true);
+    expect(
+      fs
+        .readdirSync(syncStorageDir(storageDir))
+        .filter((name) => name.endsWith(".tmp")),
+    ).toEqual([]);
 
     const reloaded = new SyncManifest(storageDir);
     await reloaded.load();

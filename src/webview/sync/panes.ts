@@ -285,14 +285,42 @@ function historyTime(t: number): string {
   return `${hh}:${mm}`;
 }
 
-function directionLabel(dir: WebDavHistoryEntry["direction"]): string {
-  switch (dir) {
+/** Glyph+count chips for the merged action column. */
+function historyActions(h: WebDavHistoryEntry): string {
+  const counts: string[] = [];
+  if (h.uploads) {
+    counts.push(
+      `<span class="dav-hist-up" title="${escapeHtml(st.histUploads(h.uploads))}">↑${h.uploads}</span>`,
+    );
+  }
+  if (h.downloads) {
+    counts.push(
+      `<span class="dav-hist-down" title="${escapeHtml(st.histDownloads(h.downloads))}">↓${h.downloads}</span>`,
+    );
+  }
+  if (h.deletes) {
+    counts.push(
+      `<span class="dav-hist-del" title="${escapeHtml(st.histDeletes(h.deletes))}">−${h.deletes}</span>`,
+    );
+  }
+  if (counts.length > 0) {
+    return counts.join("");
+  }
+  if (
+    h.uploads !== undefined ||
+    h.downloads !== undefined ||
+    h.deletes !== undefined
+  ) {
+    return st.dirNone;
+  }
+  // Entries persisted before per-action counts only know direction + total.
+  switch (h.direction) {
     case "up":
-      return st.dirUp;
+      return `↑${h.files}`;
     case "down":
-      return st.dirDown;
+      return `↓${h.files}`;
     case "both":
-      return st.dirBoth;
+      return `↑↓${h.files}`;
     default:
       return st.dirNone;
   }
@@ -345,11 +373,12 @@ export function renderHistory(state: SyncUiState): void {
       (h) => `
   <div class="dav-hist-grid dav-hist-row">
     <span class="dav-hist-t">${h.time ? historyTime(h.time) : st.histUnknownTime}</span>
-    <span class="dav-hist-dir">${directionLabel(h.direction)}</span>
     <span class="dav-hist-trig">${triggerLabel(h.trigger)}</span>
-    <span class="dav-hist-n">${st.histFiles(h.files)}</span>
     ${resultBadge(h.result)}
-    <span class="dav-hist-msg">${escapeHtml(h.message ?? "")}</span>
+    <span class="dav-hist-sum">
+      <span class="dav-hist-act">${historyActions(h)}</span>
+      ${h.message ? `<span class="dav-hist-msg">${escapeHtml(h.message)}</span>` : ""}
+    </span>
   </div>`,
     )
     .join("");

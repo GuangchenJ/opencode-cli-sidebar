@@ -332,6 +332,8 @@ export interface WebDavConflictEntry {
   localSize?: number;
   remoteMtime?: number;
   remoteSize?: number;
+  /** ETag observed when the conflict was detected, used to detect drift. */
+  remoteEtag?: string | null;
   /** Machine-readable cause hint, e.g. first sync without a baseline. */
   reason?: string;
 }
@@ -352,10 +354,17 @@ export type WebDavSyncTrigger =
 
 export interface WebDavHistoryEntry {
   time: number;
+  /** Legacy direction of the pass; kept for entries persisted by older versions. */
   direction: WebDavHistoryDirection;
   /** Trigger source of the pass; missing on entries persisted before the field existed. */
   trigger?: WebDavSyncTrigger;
+  /** Legacy total transfer count; kept for entries persisted by older versions. */
   files: number;
+  /** Per-action counts; absent on entries persisted by older versions. */
+  uploads?: number;
+  downloads?: number;
+  /** Remote files removed as part of the pass (e.g. by an exclude purge). */
+  deletes?: number;
   result: "success" | "partial" | "failed";
   message?: string;
 }

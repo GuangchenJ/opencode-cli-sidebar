@@ -90,6 +90,12 @@ export interface WebDavPutConditions {
   ifNoneMatchStar?: boolean;
 }
 
+/** Optional conditional-request headers for DELETE. */
+export interface WebDavDeleteConditions {
+  /** Delete only while the remote ETag still matches this value. */
+  ifMatch?: string;
+}
+
 /** One remote resource as reported by PROPFIND. */
 export interface WebDavStat {
   /** Path relative to basePath (decoded); "" is the queried collection. */
@@ -198,21 +204,29 @@ export function hrefToRelativePath(
     } catch {
       return null;
     }
+  } else {
+    pathname = pathname.replace(/[?#].*$/, "");
   }
-  const base = normalizeBasePath(basePath);
-  const trimmedBase = base.slice(0, -1);
-  if (pathname === base || pathname === trimmedBase) {
-    return "";
-  }
-  const prefix = base.endsWith("/") ? base : base + "/";
-  if (!pathname.startsWith(prefix)) {
-    return null;
-  }
-  const rel = pathname.slice(prefix.length).replace(/\/+$/, "");
-  const segments = rel
+  // Compare decoded segments: servers percent-encode non-ASCII or spaces
+  // in hrefs while the configured base path is raw, so a literal string
+  // prefix check would never match such trees.
+  const baseSegments = normalizeBasePath(basePath)
     .split("/")
     .filter((segment) => segment.length > 0)
     .map(decodeSegment);
+  const pathSegments = pathname
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map(decodeSegment);
+  if (pathSegments.length < baseSegments.length) {
+    return null;
+  }
+  for (let i = 0; i < baseSegments.length; i++) {
+    if (pathSegments[i] !== baseSegments[i]) {
+      return null;
+    }
+  }
+  const segments = pathSegments.slice(baseSegments.length);
   if (
     segments.some(
       (segment) =>
@@ -450,10 +464,21 @@ export class WebDavClient {
   }
 
   /** DELETE a resource. Missing resources are treated as success. */
-  public async del(path: string): Promise<void> {
-    const response = await this.requestChecked("DELETE", path, {
-      headers: {},
-    });
+  public async del(
+    path: string,
+    conditions?: WebDavDeleteConditions,
+  ): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (conditions?.ifMatch) {
+      headers["If-Match"] = conditions.ifMatch;
+    }
+    const response = await this.requestChecked("DELETE", path, { headers });
+    if (response.status === 412) {
+      throw new PreconditionFailedError(
+        "DELETE precondition failed with status 412",
+        412,
+      );
+    }
     if (
       response.status !== 200 &&
       response.status !== 202 &&

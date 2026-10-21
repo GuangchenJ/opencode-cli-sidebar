@@ -49,6 +49,11 @@ class FakeClient implements WebDavClientLike {
     ifMatch?: string;
     ifNoneMatchStar?: boolean;
   }> = [];
+  /** One record per DELETE attempt with the conditions that were sent. */
+  public readonly delConditions: Array<{
+    rel: string;
+    ifMatch?: string;
+  }> = [];
   public ensureBasePathCalls = 0;
   public readonly calls = {
     propfind: [] as string[],
@@ -140,6 +145,15 @@ class FakeClient implements WebDavClientLike {
     if (failure === "unsupported") {
       throw new WebDavTransientError("conditional not supported", 400);
     }
+    if (conditions?.ifMatch !== undefined) {
+      const current = this.files.get(rel);
+      if (!current || current.etag !== conditions.ifMatch) {
+        throw new PreconditionFailedError("precondition failed", 412);
+      }
+    }
+    if (conditions?.ifNoneMatchStar && this.files.has(rel)) {
+      throw new PreconditionFailedError("precondition failed", 412);
+    }
     this.etagCounter += 1;
     this.files.set(rel, { etag: `"v${this.etagCounter}"`, content });
   }
@@ -153,11 +167,21 @@ class FakeClient implements WebDavClientLike {
     this.dirs.add(rel);
   }
 
-  public async del(rel: string): Promise<void> {
+  public async del(
+    rel: string,
+    conditions?: { ifMatch?: string },
+  ): Promise<void> {
     this.calls.del.push(rel);
+    this.delConditions.push({ rel, ifMatch: conditions?.ifMatch });
     this.maybeFail();
     if (this.delFailures.has(rel)) {
       throw new WebDavTransientError("delete blocked", 502);
+    }
+    if (conditions?.ifMatch !== undefined) {
+      const current = this.files.get(rel);
+      if (!current || current.etag !== conditions.ifMatch) {
+        throw new PreconditionFailedError("precondition failed", 412);
+      }
     }
     this.files.delete(rel);
     this.dirs.delete(rel);
@@ -413,6 +437,7 @@ describe("ConfigSyncService engine", () => {
   let posted: HostMessage[];
   let deltas: WebDavSyncStatusDelta[];
   let logger: OutputChannelService;
+  let clientFactoryCalls: number;
 
   function writeLocal(rel: string, content: string): void {
     const abs = path.join(configDir, ...rel.split("/"));
@@ -469,6 +494,7 @@ describe("ConfigSyncService engine", () => {
     client = new FakeClient();
     posted = [];
     deltas = [];
+    clientFactoryCalls = 0;
     logger = OutputChannelService.getInstance();
     service = new ConfigSyncService(makeContext(storageDir), {
       logger,
@@ -476,7 +502,10 @@ describe("ConfigSyncService engine", () => {
         posted.push(message);
       },
       isWebviewVisible: () => true,
-      clientFactory: () => client,
+      clientFactory: () => {
+        clientFactoryCalls += 1;
+        return client;
+      },
     });
     service.onDidChange((delta) => {
       deltas.push(delta);
@@ -543,6 +572,9 @@ describe("ConfigSyncService engine", () => {
       expect(snapshot.history[0]).toMatchObject({
         direction: "up",
         files: 1,
+        uploads: 1,
+        downloads: 0,
+        deletes: 0,
         result: "success",
         trigger: "manual",
       });
@@ -558,6 +590,9 @@ describe("ConfigSyncService engine", () => {
       expect(snapshot.history[0]).toMatchObject({
         direction: "none",
         files: 0,
+        uploads: 0,
+        downloads: 0,
+        deletes: 0,
         result: "success",
         trigger: "manual",
       });
@@ -577,6 +612,9 @@ describe("ConfigSyncService engine", () => {
       expect(snapshot.history[0]).toMatchObject({
         direction: "none",
         files: 0,
+        uploads: 0,
+        downloads: 0,
+        deletes: 0,
         result: "success",
         trigger: "poll",
       });
@@ -589,6 +627,9 @@ describe("ConfigSyncService engine", () => {
       expect(snapshot.history[0]).toMatchObject({
         direction: "up",
         files: 1,
+        uploads: 1,
+        downloads: 0,
+        deletes: 0,
         result: "success",
         trigger: "poll",
       });
@@ -795,6 +836,150 @@ describe("ConfigSyncService engine", () => {
     expect(readLocal("cli.json")).toBe("base");
   });
 
+  it("keeps local on a content conflict using the ETag the user reviewed", async () => {
+    writeLocal("cli.json", "base");
+    client.addFile("cli.json", "base");
+    await service.syncNow();
+    writeLocal("cli.json", "local-new");
+    client.addFile("cli.json", "remote-new");
+    await service.syncNow();
+
+    const [conflict] = (await service.getSnapshot()).conflicts;
+    expect(conflict?.kind).toBe("content");
+    client.putConditions.length = 0;
+
+    await service.resolveConflict(conflict.id, "local");
+
+    expect(client.putConditions).toEqual([
+      {
+        rel: "cli.json",
+        ifMatch: conflict.remoteEtag,
+        ifNoneMatchStar: undefined,
+      },
+    ]);
+    expect(client.files.get("cli.json")?.content.toString()).toBe("local-new");
+    expect((await service.getSnapshot()).conflicts).toEqual([]);
+  });
+
+  it("re-conflicts instead of overwriting a remote changed after detection", async () => {
+    writeLocal("cli.json", "base");
+    client.addFile("cli.json", "base");
+    await service.syncNow();
+    writeLocal("cli.json", "local-new");
+    client.addFile("cli.json", "remote-new");
+    await service.syncNow();
+
+    const [conflict] = (await service.getSnapshot()).conflicts;
+    client.addFile("cli.json", "remote-newer");
+    client.putConditions.length = 0;
+
+    await service.resolveConflict(conflict.id, "local");
+
+    expect(client.putConditions).toEqual([]);
+    expect(client.files.get("cli.json")?.content.toString()).toBe(
+      "remote-newer",
+    );
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.conflicts).toHaveLength(1);
+    expect(snapshot.conflicts[0]).toMatchObject({
+      kind: "content",
+      reason: "remoteChanged",
+    });
+  });
+
+  it("resolves a localDeleted conflict with a guarded remote delete", async () => {
+    writeLocal("cli.json", "base");
+    client.addFile("cli.json", "base");
+    await service.syncNow();
+    fs.rmSync(path.join(configDir, "cli.json"));
+    await service.syncNow();
+
+    const [conflict] = (await service.getSnapshot()).conflicts;
+    expect(conflict?.kind).toBe("localDeleted");
+    client.delConditions.length = 0;
+
+    await service.resolveConflict(conflict.id, "local");
+
+    expect(client.delConditions).toEqual([
+      { rel: "cli.json", ifMatch: conflict.remoteEtag },
+    ]);
+    expect(client.files.has("cli.json")).toBe(false);
+    expect((await service.getSnapshot()).conflicts).toEqual([]);
+  });
+
+  it("keeps a localDeleted conflict when the remote changed before resolution", async () => {
+    writeLocal("cli.json", "base");
+    client.addFile("cli.json", "base");
+    await service.syncNow();
+    fs.rmSync(path.join(configDir, "cli.json"));
+    await service.syncNow();
+
+    const [conflict] = (await service.getSnapshot()).conflicts;
+    client.addFile("cli.json", "remote-newer");
+    client.calls.del.length = 0;
+
+    await service.resolveConflict(conflict.id, "local");
+
+    expect(client.calls.del).toEqual([]);
+    expect(client.files.get("cli.json")?.content.toString()).toBe(
+      "remote-newer",
+    );
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.conflicts[0]).toMatchObject({
+      kind: "localDeleted",
+      reason: "remoteChanged",
+    });
+  });
+
+  it("keeps a remoteDeleted conflict when another device recreated the file", async () => {
+    writeLocal("cli.json", "base");
+    client.addFile("cli.json", "base");
+    await service.syncNow();
+    client.files.delete("cli.json");
+    await service.syncNow();
+
+    const [conflict] = (await service.getSnapshot()).conflicts;
+    expect(conflict?.kind).toBe("remoteDeleted");
+    client.addFile("cli.json", "recreated");
+    client.putConditions.length = 0;
+
+    await service.resolveConflict(conflict.id, "local");
+
+    expect(client.putConditions).toEqual([]);
+    expect(client.files.get("cli.json")?.content.toString()).toBe("recreated");
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.conflicts[0]).toMatchObject({
+      kind: "content",
+      reason: "remoteChanged",
+    });
+  });
+
+  it("records the pre-read ETag so a remote edit during download is re-fetched", async () => {    writeLocal("cli.json", "base");
+    client.addFile("cli.json", "base");
+    await service.syncNow();
+    writeLocal("cli.json", "local-new");
+    client.addFile("cli.json", "remote-new");
+    await service.syncNow();
+
+    const [conflict] = (await service.getSnapshot()).conflicts;
+    const originalGet = client.get.bind(client);
+    let mutated = false;
+    client.get = async (rel: string) => {
+      const content = await originalGet(rel);
+      if (!mutated && rel === "cli.json") {
+        mutated = true;
+        client.addFile("cli.json", "remote-newer");
+      }
+      return content;
+    };
+
+    await service.resolveConflict(conflict.id, "remote");
+    expect(readLocal("cli.json")).toBe("remote-new");
+
+    await service.syncNow();
+    expect(readLocal("cli.json")).toBe("remote-newer");
+  });
+
   it("skips deletion handling entirely under the ignore policy", async () => {
     writeLocal("cli.json", "base");
     client.addFile("cli.json", "base");
@@ -969,7 +1154,7 @@ describe("ConfigSyncService engine", () => {
     await service.syncNow();
 
     expect(client.putConditions).toEqual([
-      { rel: "cli.json", ifMatch: '"v1"', ifNoneMatchStar: undefined },
+      { rel: "cli.json", ifMatch: '"v2"', ifNoneMatchStar: undefined },
     ]);
     expect(readLocal("cli.json")).toBe("local-new");
     expect(client.files.get("cli.json")?.content.toString()).toBe("remote-new");
@@ -978,6 +1163,34 @@ describe("ConfigSyncService engine", () => {
       kind: "content",
       reason: "preconditionFailed",
     });
+    // A refused write is not a completed transfer in the history.
+    expect(snapshot.history[0]).toMatchObject({
+      direction: "none",
+      files: 0,
+      result: "partial",
+    });
+  });
+
+  it("resets the pending counter before every pass", async () => {
+    writeLocal("cli.json", "v1");
+    client.put = async () => {
+      throw new WebDavFatalError("boom", 401);
+    };
+
+    await service.syncNow();
+    expect((await service.getSnapshot()).pendingCount).toBe(1);
+
+    await service.syncNow();
+    expect((await service.getSnapshot()).pendingCount).toBe(1);
+  });
+
+  it("reuses one client across passes so pacing state persists", async () => {
+    writeLocal("cli.json", "v1");
+    await service.syncNow();
+    writeLocal("cli.json", "v2");
+    await service.syncNow();
+
+    expect(clientFactoryCalls).toBe(1);
   });
 
   it("retries once without conditions when the server rejects conditional PUTs", async () => {
@@ -1606,6 +1819,14 @@ describe("ConfigSyncService engine", () => {
     expect(client.files.has("cli.json")).toBe(true);
     expect(client.files.has("AGENTS.md")).toBe(true);
     expect(client.files.has("outside/foreign.md")).toBe(true);
+
+    // The purge count lands on the reconcile pass that runs right after.
+    await vi.waitFor(async () => {
+      const [latest] = (await service.getSnapshot()).history;
+      if (latest?.trigger !== "excludeChange" || latest.deletes !== 1) {
+        throw new Error("excludeChange history entry not recorded yet");
+      }
+    });
   });
 
   it("never deletes remote files outside the machine's item scope", async () => {
@@ -1625,6 +1846,25 @@ describe("ConfigSyncService engine", () => {
     // The pattern matches the foreign file too, but another device owns it.
     expect(client.files.has("outside/foreign.md")).toBe(true);
     expect(client.files.has("cli.json")).toBe(true);
+  });
+
+  it("never purges remote files this machine has not synced", async () => {
+    writeLocal("opencode.json", "v1");
+    await service.syncNow();
+    // Inside a built-in item, but only another device ever uploaded it.
+    client.addFile("skills/foreign.md", "foreign");
+    const deltasBefore = deltas.length;
+
+    await service.addExclude("skills");
+
+    // Wait for the reconcile pass that follows the purge.
+    await vi.waitFor(() => {
+      if (deltas.length < deltasBefore + 2) {
+        throw new Error("reconcile still pending");
+      }
+    });
+    expect(client.calls.del).toEqual([]);
+    expect(client.files.has("skills/foreign.md")).toBe(true);
   });
 
   it("skips the purge when the exclude entry already exists", async () => {

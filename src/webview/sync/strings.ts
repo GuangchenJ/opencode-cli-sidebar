@@ -105,14 +105,13 @@ export const st = {
 
   // ── History pane ──
   histEmpty: syncT("histEmpty", "No sync history yet"),
-  dirUp: syncT("dirUp", "↑ upload"),
-  dirDown: syncT("dirDown", "↓ download"),
-  dirBoth: syncT("dirBoth", "↑↓ both"),
   dirNone: syncT("dirNone", "—"),
   resSuccess: syncT("resSuccess", "success"),
   resPartial: syncT("resPartial", "partial"),
   resFailed: syncT("resFailed", "failed"),
-  histFiles: (n: number) => syncT("histFiles", "{0} file(s)", n),
+  histUploads: (n: number) => syncT("histUploads", "{0} uploaded", n),
+  histDownloads: (n: number) => syncT("histDownloads", "{0} downloaded", n),
+  histDeletes: (n: number) => syncT("histDeletes", "{0} deleted", n),
   histUnknownTime: syncT("histUnknownTime", "—"),
   trigNone: syncT("trigNone", "—"),
   trigStartup: syncT("trigStartup", "Startup"),
