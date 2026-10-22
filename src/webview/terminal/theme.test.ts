@@ -10,6 +10,7 @@ import {
   applyWorkbenchThemeChange,
   getColorSchemeNotification,
   readVsCodeTerminalTheme,
+  shouldNotifyTui,
   watchVsCodeTerminalTheme,
 } from "./theme";
 
@@ -232,10 +233,22 @@ describe("getColorSchemeNotification", () => {
   });
 });
 
+describe("shouldNotifyTui", () => {
+  it("notifies only while the alternate screen is active", () => {
+    expect(
+      shouldNotifyTui({ buffer: { active: { type: "alternate" } } }),
+    ).toBe(true);
+    expect(shouldNotifyTui({ buffer: { active: { type: "normal" } } })).toBe(
+      false,
+    );
+  });
+});
+
 describe("applyWorkbenchThemeChange", () => {
   it("resets xterm/background-sync overrides, repaints, and notifies the TUI", () => {
     const terminal = {
       options: { theme: { background: "#000000" } as Record<string, string> },
+      buffer: { active: { type: "alternate" } },
     };
     const backgroundSync = {
       resetThemeOverrides: vi.fn(),
@@ -253,6 +266,28 @@ describe("applyWorkbenchThemeChange", () => {
     expect(
       document.documentElement.style.getPropertyValue("--terminal-foreground"),
     ).toBe("#fedcba");
+  });
+
+  it("does not notify the TUI from a normal shell buffer", () => {
+    const terminal = {
+      options: { theme: { background: "#000000" } as Record<string, string> },
+      buffer: { active: { type: "normal" } },
+    };
+    const backgroundSync = {
+      resetThemeOverrides: vi.fn(),
+      syncNow: vi.fn(),
+    };
+    const notifyTui = vi.fn();
+
+    applyWorkbenchThemeChange(
+      terminal,
+      { background: "#abcdef", foreground: "#fedcba" },
+      backgroundSync,
+      notifyTui,
+    );
+
+    expect(notifyTui).not.toHaveBeenCalled();
+    expect(backgroundSync.syncNow).toHaveBeenCalledWith(true);
   });
 });
 

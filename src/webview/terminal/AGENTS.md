@@ -78,7 +78,7 @@ All three share the same extraction logic but #2 has a duplicated copy. When cha
 - CSP requires nonce on all inline scripts; `cspSource` comes from the host webview object.
 - WebGL fallback is silent — there is no explicit CanvasAddon swap.
 - The xterm palette mirrors the integrated terminal via `--vscode-terminal-*`; `background-sync` may override `--terminal-background` afterward to match a TUI's painted background. On a workbench theme change xterm drops OSC overrides, so `background-sync` resets its mirrored OSC state and force-repaints every layer.
-- After applying a workbench theme change, the webview sends `CSI ? 997 ; 1 n` / `; 2 n` through `terminalInput`. OpenCode's TUI treats it as a color-scheme notification and re-queries OSC 10/11, so its own theme updates without a restart.
+- After applying a workbench theme change, the webview sends `CSI ? 997 ; 1 n` / `; 2 n` through `terminalInput`, but only while the alternate screen is active. OpenCode's TUI treats it as a color-scheme notification and re-queries OSC 10/11, so its own theme updates without a restart; normal-screen shell prompts never receive it.
 
 ## Verification
 

@@ -112,6 +112,22 @@ export interface TerminalThemeSyncTarget {
   syncNow: (force?: boolean) => void;
 }
 
+export interface ThemeAwareTerminal {
+  options: { theme?: ITheme };
+  buffer: { active: { type: string } };
+}
+
+/**
+ * OpenCode's TUI runs on the alternate screen by default. A residual shell
+ * prompt (notably on Windows, where cmd /k and PowerShell -NoExit keep the
+ * PTY alive) uses the normal screen and must not receive terminal responses.
+ */
+export function shouldNotifyTui(
+  terminal: Pick<ThemeAwareTerminal, "buffer">,
+): boolean {
+  return terminal.buffer.active.type === "alternate";
+}
+
 function readComputedStyle(): CSSStyleDeclaration | null {
   if (
     typeof document === "undefined" ||
@@ -246,7 +262,7 @@ export function applyTerminalThemeVariables(
  * does) to re-query OSC 10/11, which xterm now answers with `theme`.
  */
 export function applyWorkbenchThemeChange(
-  terminal: { options: { theme?: ITheme } },
+  terminal: ThemeAwareTerminal,
   theme: ITheme,
   backgroundSync: TerminalThemeSyncTarget,
   notifyTui: (data: string) => void,
@@ -255,7 +271,9 @@ export function applyWorkbenchThemeChange(
   terminal.options.theme = theme;
   applyTerminalThemeVariables(theme, { background: false });
   backgroundSync.syncNow(true);
-  notifyTui(getColorSchemeNotification(theme));
+  if (shouldNotifyTui(terminal)) {
+    notifyTui(getColorSchemeNotification(theme));
+  }
 }
 
 /**
