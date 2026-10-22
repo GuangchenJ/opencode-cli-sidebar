@@ -130,7 +130,7 @@ Also under OpenCode v2, an **OpenCode CLI Settings** button appears next to the 
 
 ### Theme behavior
 
-The sidebar terminal follows VS Code's terminal theme: background, foreground, cursor/selection colors, and the 16 ANSI colors come from the active workbench theme, and they update immediately when the theme changes. OpenCode's default `opencode` theme only provides light/dark variants, so switching between themes of the same kind may not change its colors. To use the full VS Code terminal palette (including per-theme ANSI colors), set **Theme name** to `system` in this settings panel; the `system` theme re-reads the terminal palette and follows each workbench theme.
+The sidebar terminal follows VS Code's terminal theme: background, foreground, cursor/selection colors, and the 16 ANSI colors come from the active workbench theme, and they update immediately when the theme changes. OpenCode's default `opencode` theme only provides light/dark variants, so switching between themes of the same kind may not change its colors. By default, `opencode-cli-sidebar.followVsCodeTheme` is enabled: the extension sets OpenCode's **Theme name** and **Theme mode** to `system`, so the TUI re-reads the terminal palette and follows each workbench theme. This overrides a locally chosen OpenCode theme. Changing **Theme name** or **Theme mode** in OpenCode CLI Settings turns the setting off so the explicit choice sticks; re-enable it to follow VS Code again.
 
 > Like the keymap button, this button is shown only for OpenCode v2.
 
@@ -202,6 +202,7 @@ Available settings in VS Code settings (`Cmd+,` / `Ctrl+,`):
 | `opencode-cli-sidebar.shellPath`      | string  | `""`              | Custom shell path (empty = VS Code default)          |
 | `opencode-cli-sidebar.shellArgs`      | array   | `[]`              | Custom shell arguments                               |
 | `opencode-cli-sidebar.sendKeybindingsToShell` | boolean | `true` | Send Ctrl/Cmd shortcuts to terminal |
+| `opencode-cli-sidebar.followVsCodeTheme` | boolean | `true` | Follow VS Code's terminal theme by setting OpenCode theme name/mode to `system` |
 | `opencode-cli-sidebar.focusIndicatorMode` | string | `"bottomBorder"` | Focus indicator when the sidebar has keyboard focus: `off`, `bottomBorder`, or `fullBorder` |
 | `opencode-cli-sidebar.focusIndicatorBorderWidth` | number | `2` | Focus indicator border width in pixels (1-8) |
 

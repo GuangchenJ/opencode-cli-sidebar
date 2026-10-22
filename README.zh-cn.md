@@ -130,7 +130,7 @@
 
 ### 主题行为
 
-侧边栏终端会继承 VS Code 的终端主题：背景、前景、光标/选区以及 16 色 ANSI 调色板都取自当前工作区主题，并在切换主题时立即更新。OpenCode 默认的 `opencode` 主题只提供 light/dark 两套变体，因此在同类主题之间切换时颜色可能不变。若要使用 VS Code 终端的完整调色板（包括每个主题各自的 ANSI 颜色），请在此设置面板中把 **主题名称** 设为 `system`；`system` 主题会重新读取终端调色板并跟随每个工作区主题。
+侧边栏终端会继承 VS Code 的终端主题：背景、前景、光标/选区以及 16 色 ANSI 调色板都取自当前工作区主题，并在切换主题时立即更新。OpenCode 默认的 `opencode` 主题只提供 light/dark 两套变体，因此在同类主题之间切换时颜色可能不变。默认启用 `opencode-cli-sidebar.followVsCodeTheme`：扩展会把 OpenCode 的 **主题名称** 和 **主题模式** 设为 `system`，让 TUI 重新读取终端调色板并跟随每个工作区主题。这会覆盖本地选择的 OpenCode 主题。在 OpenCode CLI 设置中修改 **主题名称** 或 **主题模式** 会自动关闭该设置，以保留你的显式选择；重新启用即可再次跟随 VS Code。
 
 > 该按钮与快捷键按钮同样仅在 OpenCode v2 下显示。
 
@@ -192,6 +192,7 @@
 | `opencode-cli-sidebar.shellPath`        | string  | `""`              | 自定义 Shell 路径（空 = VS Code 默认）    |
 | `opencode-cli-sidebar.shellArgs`        | array   | `[]`              | 自定义 Shell 参数                         |
 | `opencode-cli-sidebar.sendKeybindingsToShell` | boolean | `true`       | 将 Ctrl/Cmd 快捷键发送到终端              |
+| `opencode-cli-sidebar.followVsCodeTheme` | boolean | `true` | 跟随 VS Code 终端主题：把 OpenCode 主题名称/模式设为 `system` |
 | `opencode-cli-sidebar.focusIndicatorMode` | string | `"bottomBorder"` | 侧边栏获得键盘焦点时的指示样式：`off`、`bottomBorder` 或 `fullBorder` |
 | `opencode-cli-sidebar.focusIndicatorBorderWidth` | number | `2` | 焦点指示器边框宽度（像素，1-8） |
 
