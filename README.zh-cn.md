@@ -128,6 +128,10 @@
 - 「快捷键绑定」分组为跳转链接，打开上方的 Keymap 弹窗
 - 写回 `cli.json` 时保留其它字段；改回默认值会删除对应键
 
+### 主题行为
+
+侧边栏终端会继承 VS Code 的终端主题：背景、前景、光标/选区以及 16 色 ANSI 调色板都取自当前工作区主题，并在切换主题时立即更新。OpenCode 默认的 `opencode` 主题只提供 light/dark 两套变体，因此在同类主题之间切换时颜色可能不变。若要使用 VS Code 终端的完整调色板（包括每个主题各自的 ANSI 颜色），请在此设置面板中把 **主题名称** 设为 `system`；`system` 主题会重新读取终端调色板并跟随每个工作区主题。
+
 > 该按钮与快捷键按钮同样仅在 OpenCode v2 下显示。
 
 ## HTTP API 集成
@@ -270,6 +274,10 @@ npx @vscode/vsce package
 - 打开扩展面板（`Cmd+Shift+X` / `Ctrl+Shift+X`）
 - 点击"..."菜单 → "从 VSIX 安装"
 - 选择生成的 `.vsix` 文件
+
+### 从 ai-sidebar-terminal 升级
+
+如果仍安装着改名前旧扩展 `sagez.ai-sidebar-terminal`，请在扩展面板中卸载它。两个扩展都会注册 `ai-sidebar-terminal.*` 命令 ID；当前扩展检测到旧扩展后会跳过 legacy 别名并输出警告，以避免激活失败。卸载旧扩展后，当前扩展会接管这些旧命令 ID，旧快捷键也会继续生效。
 
 ## 许可证
 
